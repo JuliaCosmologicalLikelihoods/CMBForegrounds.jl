@@ -96,9 +96,9 @@ function tsz_scaling(ν, ν0, T)
     return g / g0
 end
 
-function ksz_power(template::AbstractVector, A3000)
+function ksz_power(template::AbstractVector, AkSZ)
     # Broadcasted multiply promotes types automatically (e.g., Dual, BigFloat)
-    return @. template * A3000
+    return @. template * AkSZ
 end
 
 function cl_derivative_from_dl(ℓs::AbstractVector, Dℓ::AbstractVector)
