@@ -1,0 +1,4 @@
+name = "CMBForegrounds"
+uuid = "fc0df5e6-91e0-40ab-a79d-ad91d7e99724"
+authors = ["Marco Bonici <bonici.marco@gmail.com>"]
+version = "0.1.0"
