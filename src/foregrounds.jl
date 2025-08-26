@@ -160,3 +160,11 @@ function poisson_power(ℓs::AbstractVector, A_ℓ0; ℓ0=3000)
     s = A_ℓ0 / (ℓ0 * ℓ0)
     return @. ℓs * ℓs * s
 end
+
+@inline fwhm_arcmin_to_sigma_rad(fwhm_arcmin) =
+    (fwhm_arcmin * (π / 180) / 60) / sqrt(8 * log(2))
+
+function bl(fwhm_arcmin, ells::AbstractVector)
+    σ = fwhm_arcmin_to_sigma_rad(fwhm_arcmin)
+    return @. exp(-0.5 * ells * (ells + 1) * σ^2)
+end
