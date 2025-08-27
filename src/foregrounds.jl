@@ -181,6 +181,15 @@ function cib_clustered_power(ℓs::AbstractVector,
     return @. (A_CIB * s * s * Z) * (ℓs / ℓ_pivot)^α
 end
 
+function cib_clustered_power(ℓs::AbstractVector,
+    A_CIB, α, β, ν1, ν2, z1, z2,
+    Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
+    s1 = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν1; T_CMB=T_CMB)
+    s2 = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν2; T_CMB=T_CMB)
+
+    return @. (A_CIB * s1 * s2 * sqrt(z1 * z2)) * (ℓs / ℓ_pivot)^α
+end
+
 """
     tsz_cross_power(template, A_tSZ, ν1, ν2, ν0; T_CMB=T_CMB)
 
@@ -243,8 +252,8 @@ function tsz_cib_cross_power(
     @assert length(ℓs) == length(tsz_template)
 
     # CIB autos
-    cib_11 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib1, z1, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot, T_CMB=T_CMB)
-    cib_22 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib2, z2, Tdust, ν0_cib)
+    cib_11 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib1, ν_cib1, z1, z1, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot, T_CMB=T_CMB)
+    cib_22 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib2, ν_cib2, z2, z2, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot, T_CMB=T_CMB)
 
     # tSZ autos (ν0 as keyword to match loaded method)
     tsz_11 = tsz_cross_power(tsz_template, A_tSZ, ν_tsz1, ν_tsz1, ν0_tsz; T_CMB=T_CMB)
