@@ -223,24 +223,31 @@ function tsz_cross_power(template::AbstractVector, A_tSZ, ν1, ν2, ν0, α_tSZ,
 end
 
 """
-    tsz_cib_cross_power(ℓs, ξ, A_tSZ, A_CIB, α, β, z1, z2, ν_cib1, ν_cib2, ν_tsz1, ν_tsz2, tsz_template, ν0_tsz, Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
+    tsz_cib_cross_power(ℓs, ξ, A_tSZ, A_CIB, α, β, z1, z2, ν_cib1, ν_cib2, ν_tsz1, ν_tsz2, α_tsz, tsz_template, ν0_tsz, Tdust, ν0_cib; ℓ_pivot_cib=3000, ℓ_pivot_tsz=3000, T_CMB=T_CMB)
 
-Computes the cross-correlation power spectrum between the tSZ effect and the CIB.
+Computes the cross-correlation power spectrum between the thermal Sunyaev-Zel'dovich (tSZ)
+effect and the Cosmic Infrared Background (CIB).
+
+The model computes the cross-spectrum between two frequency channels (1 and 2) as:
+`D_ℓ = -ξ * (sqrt(|D_ℓ^{tSZ,11} * D_ℓ^{CIB,22}|) + sqrt(|D_ℓ^{tSZ,22} * D_ℓ^{CIB,11}|))`
+where `D_ℓ^{tSZ, ..}` and `D_ℓ^{CIB, ..}` are the auto-power spectra for each component.
 
 # Arguments
 - `ℓs`: Vector of multipoles.
 - `ξ`: tSZ-CIB correlation coefficient.
-- `A_tSZ`, `A_CIB`: Amplitudes for tSZ and CIB power spectra.
-- `α`, `β`: Power-law indices for CIB.
-- `z1`, `z2`: Redshifts for CIB channels.
-- `ν_cib1`, `ν_cib2`: Frequencies for CIB channels.
-- `ν_tsz1`, `ν_tsz2`: Frequencies for tSZ channels.
-- `tsz_template`: Power spectrum template for tSZ.
-- `ν0_tsz`, `ν0_cib`: Reference frequencies for tSZ and CIB.
-- `Tdust`: Dust temperature.
+- `A_tSZ`, `A_CIB`: Amplitudes for the tSZ and CIB power spectra.
+- `α`, `β`: Power-law indices for the CIB model.
+- `z1`, `z2`: Redshifts for the CIB channels.
+- `ν_cib1`, `ν_cib2`: Frequencies for the CIB channels.
+- `ν_tsz1`, `ν_tsz2`: Frequencies for the tSZ channels.
+- `α_tsz`: The power-law tilt of the tSZ power spectrum.
+- `tsz_template`: Power spectrum template for the tSZ effect.
+- `ν0_tsz`, `ν0_cib`: Reference frequencies for the tSZ and CIB models.
+- `Tdust`: Dust temperature for the CIB model.
 
 # Keywords
-- `ℓ_pivot`: Pivot multipole for CIB, default is 3000.
+- `ℓ_pivot_cib`: Pivot multipole for the CIB power spectrum; default is 3000.
+- `ℓ_pivot_tsz`: Pivot multipole for the tSZ power spectrum; default is 3000.
 - `T_CMB`: Temperature of the CMB.
 
 # Returns
