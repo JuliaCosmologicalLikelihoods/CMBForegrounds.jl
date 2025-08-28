@@ -191,15 +191,19 @@ function cib_clustered_power(ℓs::AbstractVector,
 end
 
 """
-    tsz_cross_power(template, A_tSZ, ν1, ν2, ν0; T_CMB=T_CMB)
+    tsz_cross_power(template, A_tSZ, ν1, ν2, ν0, α_tSZ, ℓ_pivot, ℓs; T_CMB=T_CMB)
 
-Computes the thermal Sunyaev-Zel'dovich (tSZ) cross-power spectrum by scaling a template.
+Computes the thermal Sunyaev-Zel'dovich (tSZ) cross-power spectrum by scaling a template,
+including a power-law dependence on the multipole ℓ.
 
 # Arguments
 - `template`: An `AbstractVector` representing the tSZ power spectrum shape `Dℓ` at a reference frequency.
-- `A_tSZ`: Amplitude of the tSZ power spectrum.
+- `A_tSZ`: Amplitude of the tSZ power spectrum at the pivot scale `ℓ_pivot`.
 - `ν1`, `ν2`: Frequencies of the two channels being correlated.
 - `ν0`: Reference frequency for the tSZ spectral function.
+- `α_tSZ`: The power-law tilt of the tSZ power spectrum.
+- `ℓ_pivot`: The pivot scale for the power-law tilt.
+- `ℓs`: An `AbstractVector` of multipoles at which to compute the power spectrum.
 
 # Keywords
 - `T_CMB`: Temperature of the CMB in Kelvin.
@@ -207,7 +211,7 @@ Computes the thermal Sunyaev-Zel'dovich (tSZ) cross-power spectrum by scaling a 
 # Returns
 - An `AbstractVector` containing the tSZ cross-power spectrum `Dℓ`.
 """
-function tsz_cross_power(template::AbstractVector, A_tSZ, ν1, ν2, ν0; T_CMB=T_CMB)
+function tsz_cross_power(template::AbstractVector, A_tSZ, ν1, ν2, ν0, α_tSZ, ℓ_pivot, ℓs::AbstractVector; T_CMB=T_CMB)
     # Preserve AD types (Dual, BigFloat, etc.)
     A, ν1_, ν2_, ν0_, T_CMB_ = promote(A_tSZ, ν1, ν2, ν0, T_CMB)
 
@@ -215,7 +219,7 @@ function tsz_cross_power(template::AbstractVector, A_tSZ, ν1, ν2, ν0; T_CMB=T
     s2 = tsz_g_ratio(ν2_, ν0_, T_CMB_)
 
     # Single-pass broadcast; result eltype promotes with A,s1,s2
-    return @. template * (A * s1 * s2)
+    return @. template * (A * s1 * s2) * (ℓs / ℓ_pivot)^α_tSZ
 end
 
 """
@@ -245,19 +249,19 @@ Computes the cross-correlation power spectrum between the tSZ effect and the CIB
 function tsz_cib_cross_power(
     ℓs::AbstractVector,
     ξ, A_tSZ, A_CIB, α, β, z1, z2,
-    ν_cib1, ν_cib2, ν_tsz1, ν_tsz2,
+    ν_cib1, ν_cib2, ν_tsz1, ν_tsz2, α_tsz,
     tsz_template::AbstractVector,
-    ν0_tsz, Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB
+    ν0_tsz, Tdust, ν0_cib; ℓ_pivot_cib=3000, ℓ_pivot_tsz=3000, T_CMB=T_CMB
 )
     @assert length(ℓs) == length(tsz_template)
 
     # CIB autos
-    cib_11 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib1, ν_cib1, z1, z1, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot, T_CMB=T_CMB)
-    cib_22 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib2, ν_cib2, z2, z2, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot, T_CMB=T_CMB)
+    cib_11 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib1, ν_cib1, z1, z1, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot_cib, T_CMB=T_CMB)
+    cib_22 = cib_clustered_power(ℓs, A_CIB, α, β, ν_cib2, ν_cib2, z2, z2, Tdust, ν0_cib; ℓ_pivot=ℓ_pivot_cib, T_CMB=T_CMB)
 
-    # tSZ autos (ν0 as keyword to match loaded method)
-    tsz_11 = tsz_cross_power(tsz_template, A_tSZ, ν_tsz1, ν_tsz1, ν0_tsz; T_CMB=T_CMB)
-    tsz_22 = tsz_cross_power(tsz_template, A_tSZ, ν_tsz2, ν_tsz2, ν0_tsz; T_CMB=T_CMB)
+    # tSZ autos
+    tsz_11 = tsz_cross_power(tsz_template, A_tSZ, ν_tsz1, ν_tsz1, ν0_tsz, α_tsz, ℓ_pivot_tsz, ℓs; T_CMB=T_CMB)
+    tsz_22 = tsz_cross_power(tsz_template, A_tSZ, ν_tsz2, ν_tsz2, ν0_tsz, α_tsz, ℓ_pivot_tsz, ℓs; T_CMB=T_CMB)
 
     return @. -ξ * (sqrt(abs(tsz_11 * cib_22)) + sqrt(abs(tsz_22 * cib_11)))
 end
