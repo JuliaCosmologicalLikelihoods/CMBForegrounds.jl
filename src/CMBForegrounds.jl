@@ -37,6 +37,6 @@ const tSZ_ν0 = 143
 include("foregrounds.jl")
 
 # Export the main functions that we want users to access
-export dimensionless_freq_vars, Bnu_ratio, dBdT_ratio, tsz_g_ratio, cib_mbb_sed_weight
+export dimensionless_freq_vars, Bnu_ratio, dBdT_ratio, tsz_g_ratio, cib_mbb_sed_weight, dust_tt_power_law
 
 end # module CMBForegrounds
