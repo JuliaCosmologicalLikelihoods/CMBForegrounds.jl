@@ -8,7 +8,7 @@ makedocs(;
     authors="Marco Bonici <bonici.marco@gmail.com> and contributors",
     sitename="CMBForegrounds.jl",
     format=Documenter.HTML(;
-        canonical="https://mbonici.github.io/CMBForegrounds.jl",
+        canonical="https://juliacosmologicallikelihoods.github.io/CMBForegrounds.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -19,6 +19,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/mbonici/CMBForegrounds.jl",
+    repo="github.com/JuliaCosmologicalLikelihoods/CMBForegrounds.jl",
     devbranch="main",
 )
