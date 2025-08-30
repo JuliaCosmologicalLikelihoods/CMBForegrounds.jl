@@ -1,5 +1,6 @@
 using Test
 using CMBForegrounds
+using Random
 
 @testset "CMBForegrounds" begin
     include("test_tsz_physics.jl")
