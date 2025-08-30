@@ -4,7 +4,7 @@ on:
     branches:
       - main
       - develop
-    tags: ['*']
+    tags: ["*"]
   pull_request:
   workflow_dispatch:
 
@@ -26,29 +26,15 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.6'  # Minimum Julia version that the package supports (LTS release)
-          - '1'    # Latest stable release
-          - 'nightly'
+          - "1.10" # Minimum Julia version that the package supports (LTS release)
+          - "1" # Latest stable release
+          - "nightly"
         os:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
         arch:
           - x64
-        exclude:
-          # Test 32-bit only on Linux
-          - os: macOS-latest
-            arch: x86
-          - os: windows-latest
-            arch: x86
-        include:
-          # Add a few windows and mac jobs with x86
-          - os: windows-latest
-            arch: x86
-            version: '1'
-          - os: ubuntu-latest
-            arch: x86
-            version: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
