@@ -4,6 +4,8 @@ Unit tests for Bnu_ratio function
 Tests the Planck function ratio B_ν(T)/B_ν0(T) at different frequencies
 """
 
+using Random  # Import Random at the top
+
 @testset "Bnu_ratio() Unit Tests" begin
 
     @testset "Basic Functionality" begin
@@ -420,7 +422,6 @@ Tests the Planck function ratio B_ν(T)/B_ν0(T) at different frequencies
         
         @testset "Stress Testing and Robustness" begin
             # Test function under stress conditions
-            using Random
             
             # Random stress test - should never fail catastrophically
             Random.seed!(12345)  # For reproducibility
