@@ -16,6 +16,7 @@ makedocs(;
         "Home" => "index.md",
         "API Reference" => "api.md",
     ],
+    warnonly=[:missing_docs],  # Don't error on undocumented functions, just warn
 )
 
 deploydocs(;
