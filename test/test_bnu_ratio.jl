@@ -374,16 +374,12 @@ Tests the Planck function ratio B_ν(T)/B_ν0(T) at different frequencies
             @test ratio_tiny > 0
             @test ratio_tiny < 1e-20  # Should be extremely small (relaxed bound)
 
-            # Wide temperature range - exclude extreme values that cause numerical issues
-            temp_range = [1e-3, 1e-1, 1e1, 1e3]  # More reasonable range
+            # Wide but physically reasonable temperature range
+            temp_range = [0.1, 0.5, 1.0, 5.0, 20.0, 100.0]  # 0.1K to 100K - realistic astrophysical range
             for T in temp_range
                 ratio = CMBForegrounds.Bnu_ratio(100.0, 50.0, T)
-                if !isfinite(ratio)
-                    @test_skip ratio  # Skip if numerical limits cause issues
-                else
-                    @test isfinite(ratio)
-                    @test ratio > 0
-                end
+                @test isfinite(ratio)
+                @test ratio > 0
             end
         end
 
@@ -424,39 +420,28 @@ Tests the Planck function ratio B_ν(T)/B_ν0(T) at different frequencies
             # Random stress test - should never fail catastrophically
             Random.seed!(12345)  # For reproducibility
             for i in 1:100  # Reduced from 1000 for faster testing
-                ν = 10^(rand() * 3)      # Random frequency 1-1000 GHz (reduced range)
-                ν₀ = 10^(rand() * 3)     # Random reference frequency 1-1000 GHz
-                T = 10^(rand() * 3 - 1)  # Random temperature 0.1-100 K (narrower range)
+                ν = 10^(rand() * 2.5 + 0.5)  # Random frequency 3-316 GHz (realistic range)
+                ν₀ = 10^(rand() * 2.5 + 0.5) # Random reference frequency 3-316 GHz
+                T = 10^(rand() * 2 + 0.0)    # Random temperature 1-100 K (physically reasonable)
 
                 ratio = CMBForegrounds.Bnu_ratio(ν, ν₀, T)
-                # Handle extreme parameter combinations gracefully
-                if !isfinite(ratio) || ratio == 0
-                    @test_skip ratio  # Skip pathological numerical cases
-                else
-                    @test isfinite(ratio)
-                    @test ratio > 0
-                end
+                @test isfinite(ratio)
+                @test ratio > 0
             end
 
-            # Systematic grid test
-            ν_vals = [0.1, 1.0, 10.0, 100.0, 1000.0]
-            ν₀_vals = [0.1, 1.0, 10.0, 100.0, 1000.0]
-            T_vals = [0.01, 0.1, 1.0, 10.0, 100.0]
+            # Systematic grid test - physically reasonable parameter space
+            ν_vals = [1.0, 10.0, 100.0, 353.0, 857.0]  # Realistic CMB/submm frequencies
+            ν₀_vals = [1.0, 10.0, 100.0, 353.0, 857.0]
+            T_vals = [0.1, 1.0, 2.7, 10.0, 50.0]       # Realistic astrophysical temperatures
 
             for ν in ν_vals, ν₀ in ν₀_vals, T in T_vals
                 ratio = CMBForegrounds.Bnu_ratio(ν, ν₀, T)
-                if !isfinite(ratio) || ratio <= 0
-                    @test_skip ratio  # Skip pathological cases
-                    continue
-                end
                 @test isfinite(ratio)
                 @test ratio > 0
 
-                # Reciprocity should always hold (with relaxed tolerance for extreme cases)
+                # Reciprocity should always hold
                 ratio_inv = CMBForegrounds.Bnu_ratio(ν₀, ν, T)
-                if isfinite(ratio_inv) && ratio_inv > 0
-                    @test ratio * ratio_inv ≈ 1.0 rtol = 1e-8
-                end
+                @test ratio * ratio_inv ≈ 1.0 rtol = 1e-12
             end
         end
     end
