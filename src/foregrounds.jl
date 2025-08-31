@@ -338,7 +338,7 @@ Calculates the derivative of the angular power spectrum.
 
 Converts from ``D_\\ell`` to ``C_\\ell`` derivative using:
 ```math
-\\frac{dC_\\ell}{d\\ell} = \\frac{d}{d\\ell}\\left[D_\\ell \\frac{2\\pi}{\\ell(\\ell+1)}\\right]
+\\frac{\\mathrm{d}C_\\ell}{\\mathrm{d}\\ell} = \\frac{\\mathrm{d}}{\\mathrm{d}\\ell}\\left[D_\\ell \\frac{2\\pi}{\\ell(\\ell+1)}\\right]
 ```
 
 The derivative is computed using central differences for interior points.
@@ -380,7 +380,7 @@ Calculates the super-sample lensing response in the power spectrum.
 
 The SSL response is:
 ```math
-\\Delta D_\\ell^{\\mathrm{SSL}} = -\\kappa \\left[ \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{dC_\\ell}{d\\ell} + 2 D_\\ell \\right]
+\\Delta D_\\ell^{\\mathrm{SSL}} = -\\kappa \\left[ \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{\\mathrm{d}C_\\ell}{\\mathrm{d}\\ell} + 2 D_\\ell \\right]
 ```
 
 where ``\\kappa`` is the convergence field and ``C_\\ell = D_\\ell \\cdot 2\\pi/[\\ell(\\ell+1)]``.
@@ -415,7 +415,7 @@ Calculates the relativistic aberration response in the power spectrum.
 
 The aberration response is:
 ```math
-\\Delta D_\\ell^{\\mathrm{aberr}} = -A_{\\mathrm{aberr}} \\cdot \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{dC_\\ell}{d\\ell}
+\\Delta D_\\ell^{\\mathrm{aberr}} = -A_{\\mathrm{aberr}} \\cdot \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{\\mathrm{d}C_\\ell}{\\mathrm{d}\\ell}
 ```
 
 where ``A_{\\mathrm{aberr}}`` is the aberration coefficient related to observer velocity.
