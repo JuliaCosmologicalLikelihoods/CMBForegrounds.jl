@@ -336,7 +336,7 @@ end
 
 Calculates the derivative of the angular power spectrum.
 
-Converts from ``D_\\\\ell`` to ``C_\\\\ell`` derivative using:
+Converts from ``D_\\ell`` to ``C_\\ell`` derivative using:
 ```math
 \\frac{dC_\\ell}{d\\ell} = \\frac{d}{d\\ell}\\left[D_\\ell \\frac{2\\pi}{\\ell(\\ell+1)}\\right]
 ```
@@ -383,7 +383,7 @@ The SSL response is:
 \\Delta D_\\ell^{\\mathrm{SSL}} = -\\kappa \\left[ \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{dC_\\ell}{d\\ell} + 2 D_\\ell \\right]
 ```
 
-where ``\\\\kappa`` is the convergence field and ``C_\\\\ell = D_\\\\ell \\\\cdot 2\\\\pi/[\\\\ell(\\\\ell+1)]``.
+where ``\\kappa`` is the convergence field and ``C_\\ell = D_\\ell \\cdot 2\\pi/[\\ell(\\ell+1)]``.
 
 # Arguments
 - `ℓs`: Multipoles vector
@@ -418,7 +418,7 @@ The aberration response is:
 \\Delta D_\\ell^{\\mathrm{aberr}} = -A_{\\mathrm{aberr}} \\cdot \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{dC_\\ell}{d\\ell}
 ```
 
-where ``A_{\\\\mathrm{aberr}}`` is the aberration coefficient related to observer velocity.
+where ``A_{\\mathrm{aberr}}`` is the aberration coefficient related to observer velocity.
 
 # Arguments
 - `ℓs`: Multipoles vector
@@ -509,7 +509,7 @@ The beam window function is:
 B_\\ell = \\exp\\left(-\\frac{1}{2} \\ell(\\ell + 1) \\sigma^2\\right)
 ```
 
-where ``\\\\sigma = \\\\mathrm{FWHM} / \\\\sqrt{8 \\\\ln 2}`` is the beam standard deviation in radians.
+where ``\\sigma = \\mathrm{FWHM} / \\sqrt{8 \\ln 2}`` is the beam standard deviation in radians.
 
 # Arguments
 - `fwhm_arcmin`: Beam FWHM in arcminutes
