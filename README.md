@@ -28,7 +28,7 @@ The core design principles are:
 
 ## 🤝 Contributing
 
-Contributions are welcome! If you find a bug, have a feature request, or want to contribute code, please feel free to open an issue or submit a pull request on the GitHub repository.
+Contributions are welcome! If you find a bug, have a feature request, or want to contribute code, please feel free to contac us and/or open an issue or submit a pull request on the GitHub repository.
 
 ---
 
