@@ -4,19 +4,19 @@
 Calculates dimensionless frequency variables used in blackbody-related calculations.
 
 The variables are defined as:
-- `r = ν / ν0`
-- `x = hν / (k_B T)`
-- `x0 = hν0 / (k_B T)`
+- ``r = \\nu / \\nu_0``
+- ``x = \\frac{h\\nu}{k_B T}``
+- ``x_0 = \\frac{h\\nu_0}{k_B T}``
 
-where `h` is the Planck constant and `k_B` is the Boltzmann constant.
+where ``h`` is the Planck constant and ``k_B`` is the Boltzmann constant.
 
 # Arguments
-- `ν`: Frequency.
-- `ν0`: Reference frequency.
-- `T`: Temperature in Kelvin.
+- `ν`: Frequency in GHz
+- `ν0`: Reference frequency in GHz
+- `T`: Temperature in Kelvin
 
 # Returns
-- A tuple `(r, x, x0)`.
+- A tuple `(r, x, x0)` containing the dimensionless variables
 """
 function dimensionless_freq_vars(ν, ν0, T)
     νu, ν0u, Tu = promote(ν, ν0, T)
@@ -29,17 +29,20 @@ end
 """
     Bnu_ratio(ν, ν0, T)
 
-Computes the ratio of the blackbody intensity `B(ν, T)` at two different frequencies.
+Computes the ratio of Planck blackbody intensities at two frequencies.
 
-The ratio is given by: `(ν/ν0)³ * (exp(hν0/k_B T) - 1) / (exp(hν/k_B T) - 1)`.
+The Planck function ratio is:
+```math
+\\frac{B(\\nu, T)}{B(\\nu_0, T)} = \\left(\\frac{\\nu}{\\nu_0}\\right)^3 \\frac{\\exp(h\\nu_0/k_B T) - 1}{\\exp(h\\nu/k_B T) - 1}
+```
 
 # Arguments
-- `ν`: Frequency.
-- `ν0`: Reference frequency.
-- `T`: Temperature in Kelvin.
+- `ν`: Frequency in GHz
+- `ν0`: Reference frequency in GHz
+- `T`: Temperature in Kelvin
 
 # Returns
-- The dimensionless ratio `B(ν, T) / B(ν0, T)`.
+- Dimensionless ratio `B(ν, T) / B(ν0, T)`
 """
 function Bnu_ratio(ν, ν0, T)
     r, x, x0 = dimensionless_freq_vars(ν, ν0, T)
@@ -49,18 +52,22 @@ end
 """
     dBdT_ratio(ν, ν0, T)
 
-Computes the ratio of the blackbody derivative `dB/dT` at two different frequencies.
+Computes the ratio of blackbody temperature derivatives at two frequencies.
 
-This function uses a numerically stable formula: `1 / (4 * sinh(x/2)^2)` which is
-equivalent to `exp(x) / (exp(x) - 1)^2`.
+The derivative ratio is:
+```math
+\\frac{\\partial B(\\nu, T)/\\partial T}{\\partial B(\\nu_0, T)/\\partial T} = \\left(\\frac{\\nu}{\\nu_0}\\right)^4 \\frac{x_0^2 \\exp(x_0)/(\\exp(x_0) - 1)^2}{x^2 \\exp(x)/(\\exp(x) - 1)^2}
+```
+
+where ``x = h\\nu/(k_B T)`` and ``x_0 = h\\nu_0/(k_B T)``.
 
 # Arguments
-- `ν`: Frequency.
-- `ν0`: Reference frequency.
-- `T`: Temperature in Kelvin.
+- `ν`: Frequency in GHz
+- `ν0`: Reference frequency in GHz
+- `T`: Temperature in Kelvin
 
 # Returns
-- The dimensionless ratio `(dB/dT)(ν, T) / (dB/dT)(ν0, T)`.
+- Dimensionless ratio `(∂B/∂T)(ν, T) / (∂B/∂T)(ν0, T)`
 """
 function dBdT_ratio(ν, ν0, T)
     r, x, x0 = dimensionless_freq_vars(ν, ν0, T)
@@ -75,19 +82,22 @@ end
 """
     tsz_g_ratio(ν, ν0, T)
 
-Calculates the spectral shape of the thermal Sunyaev-Zel'dovich (tSZ) effect,
-normalized at a reference frequency `ν0`.
+Calculates the spectral shape of the thermal Sunyaev-Zel'dovich (tSZ) effect.
 
-The tSZ spectral function is `g(x) = x * coth(x/2) - 4`, where `x = hν / (k_B T)`.
-This function computes `g(x) / g(x0)`.
+The tSZ spectral function is:
+```math
+g(x) = x \\coth\\left(\\frac{x}{2}\\right) - 4
+```
+
+where ``x = h\\nu/(k_B T)``. This function returns ``g(x) / g(x_0)``.
 
 # Arguments
-- `ν`: Frequency.
-- `ν0`: Reference frequency.
-- `T`: Temperature of the CMB in Kelvin.
+- `ν`: Frequency in GHz
+- `ν0`: Reference frequency in GHz
+- `T`: CMB temperature in Kelvin
 
 # Returns
-- The dimensionless ratio of the tSZ spectral function at `ν` and `ν0`.
+- Dimensionless ratio `g(ν) / g(ν0)` of tSZ spectral function
 """
 function tsz_g_ratio(ν, ν0, T)
     r, x, x0 = dimensionless_freq_vars(ν, ν0, T)
@@ -99,22 +109,26 @@ end
 """
     cib_mbb_sed_weight(β, Tdust, ν0, ν; T_CMB=T_CMB)
 
-Calculates the spectral energy distribution (SED) weight for a modified blackbody (MBB)
-model, typically used for the Cosmic Infrared Background (CIB).
+Calculates the spectral energy distribution weight for modified blackbody emission.
 
-The weight is proportional to `ν^β * B(ν, T_dust) / (dB/dT)(ν, T_CMB)`.
+The CIB modified blackbody SED weight is:
+```math
+S(\\nu) = \\left(\\frac{\\nu}{\\nu_0}\\right)^\\beta \\frac{B(\\nu, T_\\mathrm{dust})}{B(\\nu_0, T_\\mathrm{dust})} \\frac{(\\partial B/\\partial T)(\\nu_0, T_\\mathrm{CMB})}{(\\partial B/\\partial T)(\\nu, T_\\mathrm{CMB})}
+```
+
+where ``B(\\nu, T)`` is the Planck function and ``\\beta`` is the dust emissivity index.
 
 # Arguments
-- `β`: Power-law spectral index for the dust emissivity.
-- `Tdust`: Dust temperature in Kelvin.
-- `ν0`: Reference frequency for normalization.
-- `ν`: Frequency at which to evaluate the SED.
+- `β`: Dust emissivity spectral index
+- `Tdust`: Dust temperature in Kelvin
+- `ν0`: Reference frequency in GHz
+- `ν`: Evaluation frequency in GHz
 
 # Keywords
-- `T_CMB`: Temperature of the CMB in Kelvin.
+- `T_CMB=T_CMB`: CMB temperature in Kelvin
 
 # Returns
-- The dimensionless SED weight.
+- Dimensionless SED weight
 """
 function cib_mbb_sed_weight(β, Tdust, ν0, ν; T_CMB=T_CMB)
     βu, Tdu, ν0u, νu, Tcu = promote(β, Tdust, ν0, ν, T_CMB)
@@ -125,23 +139,30 @@ end
 """
     dust_tt_power_law(ℓs, A_pivot, α, β, ν1, ν2, Tdust, ν0; ℓ_pivot=80, T_CMB=T_CMB)
 
-Computes a power-law model for the thermal dust auto-correlation (TT) power spectrum.
+Computes thermal dust power spectrum using a power-law model.
+
+The dust power spectrum is:
+```math
+D_\\ell^{\\mathrm{dust}}(\\nu_1, \\nu_2) = A_{\\mathrm{pivot}} \\cdot S(\\nu_1) \\cdot S(\\nu_2) \\cdot \\left(\\frac{\\ell}{\\ell_{\\mathrm{pivot}}}\\right)^{\\alpha + 2}
+```
+
+where ``S(\\nu)`` is the modified blackbody SED weight and the ``+2`` converts from ``C_\\ell`` to ``D_\\ell`` scaling.
 
 # Arguments
-- `ℓs`: An `AbstractVector` of multipoles.
-- `A_pivot`: Amplitude of the power spectrum at `ℓ_pivot`.
-- `α`: Power-law index for the multipole dependence.
-- `β`: Spectral index for the dust emissivity.
-- `ν1`, `ν2`: Frequencies of the two channels being correlated.
-- `Tdust`: Dust temperature in Kelvin.
-- `ν0`: Reference frequency for the SED calculation.
+- `ℓs`: Multipoles vector
+- `A_pivot`: Amplitude at pivot multipole
+- `α`: Power-law index for multipole dependence
+- `β`: Dust emissivity spectral index
+- `ν1`, `ν2`: Frequencies in GHz for cross-correlation
+- `Tdust`: Dust temperature in Kelvin
+- `ν0`: Reference frequency in GHz
 
 # Keywords
-- `ℓ_pivot`: Pivot multipole, default is 80.
-- `T_CMB`: Temperature of the CMB in Kelvin.
+- `ℓ_pivot=80`: Pivot multipole
+- `T_CMB=T_CMB`: CMB temperature
 
 # Returns
-- An `AbstractVector` containing the dust power spectrum `Dℓ` at each `ℓ` in `ℓs`.
+- Dust power spectrum `Dℓ`
 """
 function dust_tt_power_law(ℓs::AbstractVector, A_pivot, α, β, ν1, ν2, Tdust, ν0;
     ℓ_pivot=80, T_CMB=T_CMB)
@@ -154,13 +175,14 @@ end
 """
     cib_clustered_power(ℓs, A_CIB, α, β, ν1, ν2, z1, z2, Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
 
-Computes the clustered Cosmic Infrared Background (CIB) power spectrum for cross-correlations
-between two frequencies and redshift bins.
+Computes the clustered cosmic infrared background power spectrum.
 
-The power spectrum is given by:
-`D_ℓ = A_CIB * s1 * s2 * √(z1 * z2) * (ℓ/ℓ_pivot)^α`
+The CIB clustered power spectrum is:
+```math
+D_\\ell^{\\mathrm{CIB}}(\\nu_1, \\nu_2) = A_{\\mathrm{CIB}} \\cdot S(\\nu_1) \\cdot S(\\nu_2) \\cdot \\sqrt{z_1 z_2} \\cdot \\left(\\frac{\\ell}{\\ell_{\\mathrm{pivot}}}\\right)^\\alpha
+```
 
-where `s1` and `s2` are the CIB modified blackbody SED weights for frequencies `ν1` and `ν2`.
+where ``S(\\nu)`` are the modified blackbody SED weights and ``z_i`` are redshift factors.
 
 This function handles both auto-spectra (when ν1=ν2 and z1=z2) and cross-spectra.
 
@@ -204,23 +226,29 @@ end
 """
     tsz_cross_power(template, A_tSZ, ν1, ν2, ν0, α_tSZ, ℓ_pivot, ℓs; T_CMB=T_CMB)
 
-Computes the thermal Sunyaev-Zel'dovich (tSZ) cross-power spectrum by scaling a template,
-including a power-law dependence on the multipole ℓ.
+Computes the thermal Sunyaev-Zel'dovich cross-power spectrum.
+
+The tSZ power spectrum is:
+```math
+D_\\ell^{\\mathrm{tSZ}}(\\nu_1, \\nu_2) = A_{\\mathrm{tSZ}} \\cdot g(\\nu_1) \\cdot g(\\nu_2) \\cdot T(\\ell) \\cdot \\left(\\frac{\\ell}{\\ell_{\\mathrm{pivot}}}\\right)^{\\alpha_{\\mathrm{tSZ}}}
+```
+
+where ``T(\\ell)`` is the template and ``g(\\nu)`` is the tSZ spectral function.
 
 # Arguments
-- `template`: An `AbstractVector` representing the tSZ power spectrum shape `Dℓ` at a reference frequency.
-- `A_tSZ`: Amplitude of the tSZ power spectrum at the pivot scale `ℓ_pivot`.
-- `ν1`, `ν2`: Frequencies of the two channels being correlated.
-- `ν0`: Reference frequency for the tSZ spectral function.
-- `α_tSZ`: The power-law tilt of the tSZ power spectrum.
-- `ℓ_pivot`: The pivot scale for the power-law tilt.
-- `ℓs`: An `AbstractVector` of multipoles at which to compute the power spectrum.
+- `template`: tSZ power spectrum template `Dℓ` at reference frequency
+- `A_tSZ`: tSZ amplitude at pivot scale
+- `ν1`, `ν2`: Frequencies in GHz of correlated channels
+- `ν0`: Reference frequency in GHz
+- `α_tSZ`: Power-law tilt of tSZ spectrum
+- `ℓ_pivot`: Pivot multipole for power-law scaling
+- `ℓs`: Multipoles for computation
 
 # Keywords
-- `T_CMB`: Temperature of the CMB in Kelvin.
+- `T_CMB=T_CMB`: CMB temperature in Kelvin
 
 # Returns
-- An `AbstractVector` containing the tSZ cross-power spectrum `Dℓ`.
+- tSZ cross-power spectrum `Dℓ`
 """
 function tsz_cross_power(template::AbstractVector, A_tSZ, ν1, ν2, ν0, α_tSZ, ℓ_pivot, ℓs::AbstractVector; T_CMB=T_CMB)
     # Preserve AD types (Dual, BigFloat, etc.)
@@ -236,12 +264,14 @@ end
 """
     tsz_cib_cross_power(ℓs, ξ, A_tSZ, A_CIB, α, β, z1, z2, ν_cib1, ν_cib2, ν_tsz1, ν_tsz2, α_tsz, tsz_template, ν0_tsz, Tdust, ν0_cib; ℓ_pivot_cib=3000, ℓ_pivot_tsz=3000, T_CMB=T_CMB)
 
-Computes the cross-correlation power spectrum between the thermal Sunyaev-Zel'dovich (tSZ)
-effect and the Cosmic Infrared Background (CIB).
+Computes the cross-correlation between thermal SZ and cosmic infrared background.
 
-The model computes the cross-spectrum between two frequency channels (1 and 2) as:
-`D_ℓ = -ξ * (sqrt(|D_ℓ^{tSZ,11} * D_ℓ^{CIB,22}|) + sqrt(|D_ℓ^{tSZ,22} * D_ℓ^{CIB,11}|))`
-where `D_ℓ^{tSZ, ..}` and `D_ℓ^{CIB, ..}` are the auto-power spectra for each component.
+The tSZ-CIB cross-power spectrum is:
+```math
+D_\\ell^{\\mathrm{tSZ \\times CIB}} = -\\xi \\left( \\sqrt{|D_\\ell^{\\mathrm{tSZ,11}} \\cdot D_\\ell^{\\mathrm{CIB,22}}|} + \\sqrt{|D_\\ell^{\\mathrm{tSZ,22}} \\cdot D_\\ell^{\\mathrm{CIB,11}}|} \\right)
+```
+
+where ``\\xi`` is the correlation coefficient and auto-spectra are computed for each component.
 
 # Arguments
 - `ℓs`: Vector of multipoles.
@@ -304,17 +334,21 @@ end
 """
     dCl_dell_from_Dl(ℓs, Dℓ)
 
-Calculates the derivative `dCℓ/dℓ` from the power spectrum `Dℓ`.
+Calculates the derivative of the angular power spectrum.
 
-Note that `Dℓ = ℓ(ℓ+1)/(2π) * Cℓ`. The derivative is computed using central
-differences for interior points and forward/backward differences at the boundaries.
+Converts from ``D_\\\\ell`` to ``C_\\\\ell`` derivative using:
+```math
+\\frac{dC_\\ell}{d\\ell} = \\frac{d}{d\\ell}\\left[D_\\ell \\frac{2\\pi}{\\ell(\\ell+1)}\\right]
+```
+
+The derivative is computed using central differences for interior points.
 
 # Arguments
-- `ℓs`: An `AbstractVector` of multipoles.
-- `Dℓ`: An `AbstractVector` of power spectrum values `Dℓ`.
+- `ℓs`: Multipoles vector
+- `Dℓ`: Power spectrum `D_\\ell` values
 
 # Returns
-- An `AbstractVector` representing the derivative `dCℓ/dℓ`.
+- Derivative `dCℓ/dℓ`
 """
 function dCl_dell_from_Dl(ℓs::AbstractVector, Dℓ::AbstractVector)
     @assert length(ℓs) == length(Dℓ) "ells and Dℓ must have the same length"
@@ -342,15 +376,22 @@ end
 """
     ssl_response(ℓs, κ, Dℓ)
 
-Calculates the change in the power spectrum `Dℓ` due to the super-sample lensing (SSL) effect.
+Calculates the super-sample lensing response in the power spectrum.
+
+The SSL response is:
+```math
+\\Delta D_\\ell^{\\mathrm{SSL}} = -\\kappa \\left[ \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{dC_\\ell}{d\\ell} + 2 D_\\ell \\right]
+```
+
+where ``\\\\kappa`` is the convergence field and ``C_\\\\ell = D_\\\\ell \\\\cdot 2\\\\pi/[\\\\ell(\\\\ell+1)]``.
 
 # Arguments
-- `ℓs`: An `AbstractVector` of multipoles.
-- `κ`: The convergence field value.
-- `Dℓ`: The unperturbed power spectrum `Dℓ`.
+- `ℓs`: Multipoles vector
+- `κ`: Convergence field value
+- `Dℓ`: Unperturbed power spectrum
 
 # Returns
-- An `AbstractVector` representing the change in `Dℓ` from the SSL effect.
+- Change in power spectrum due to SSL
 """
 function ssl_response(ℓs::AbstractVector, κ, Dℓ::AbstractVector)
     @assert length(ℓs) == length(Dℓ) "ells and Dℓ must have the same length"
@@ -370,15 +411,22 @@ end
 """
     aberration_response(ℓs, ab_coeff, Dℓ)
 
-Calculates the change in the power spectrum `Dℓ` due to relativistic aberration.
+Calculates the relativistic aberration response in the power spectrum.
+
+The aberration response is:
+```math
+\\Delta D_\\ell^{\\mathrm{aberr}} = -A_{\\mathrm{aberr}} \\cdot \\ell \\frac{\\ell(\\ell+1)}{2\\pi} \\frac{dC_\\ell}{d\\ell}
+```
+
+where ``A_{\\\\mathrm{aberr}}`` is the aberration coefficient related to observer velocity.
 
 # Arguments
-- `ℓs`: An `AbstractVector` of multipoles.
-- `ab_coeff`: The aberration coefficient (related to observer velocity).
-- `Dℓ`: The unperturbed power spectrum `Dℓ`.
+- `ℓs`: Multipoles vector
+- `ab_coeff`: Aberration coefficient
+- `Dℓ`: Unperturbed power spectrum
 
 # Returns
-- An `AbstractVector` representing the change in `Dℓ` from aberration.
+- Change in power spectrum due to aberration
 """
 function aberration_response(ℓs::AbstractVector, ab_coeff, Dℓ::AbstractVector)
     @assert length(ℓs) == length(Dℓ) "ells and Dℓ must have the same length"
@@ -412,19 +460,24 @@ end
 """
     shot_noise_power(ℓs, A_ℓ0; ℓ0=3000)
 
-Computes a shot noise power spectrum, which scales as `ℓ²`.
+Computes shot noise power spectrum with ℓ² scaling.
 
-The model is `Dℓ = A_ℓ0 * (ℓ/ℓ0)²`.
+The shot noise power spectrum is:
+```math
+D_\\ell^{\\mathrm{shot}} = A_{\\ell_0} \\left(\\frac{\\ell}{\\ell_0}\\right)^2
+```
+
+This represents the white noise contribution from point sources.
 
 # Arguments
-- `ℓs`: An `AbstractVector` of multipoles.
-- `A_ℓ0`: The amplitude of the shot noise `Dℓ` at `ℓ0`.
+- `ℓs`: Multipoles vector
+- `A_ℓ0`: Shot noise amplitude at reference multipole
 
 # Keywords
-- `ℓ0`: The reference multipole, default is 3000.
+- `ℓ0=3000`: Reference multipole
 
 # Returns
-- An `AbstractVector` of the shot noise power `Dℓ`.
+- Shot noise power spectrum `Dℓ`
 """
 function shot_noise_power(ℓs::AbstractVector, A_ℓ0; ℓ0=3000)
     s = A_ℓ0 / (ℓ0 * ℓ0)
@@ -449,16 +502,21 @@ standard deviation (sigma) in radians.
 """
     gaussian_beam_window(fwhm_arcmin, ells)
 
-Calculates the Gaussian beam window function `B(ℓ)` for a given FWHM.
+Calculates the Gaussian beam window function.
 
-The window function is given by `B(ℓ) = exp(-0.5 * ℓ * (ℓ + 1) * σ²)`.
+The beam window function is:
+```math
+B_\\ell = \\exp\\left(-\\frac{1}{2} \\ell(\\ell + 1) \\sigma^2\\right)
+```
+
+where ``\\\\sigma = \\\\mathrm{FWHM} / \\\\sqrt{8 \\\\ln 2}`` is the beam standard deviation in radians.
 
 # Arguments
-- `fwhm_arcmin`: The beam FWHM in arcminutes.
-- `ells`: An `AbstractVector` of multipoles.
+- `fwhm_arcmin`: Beam FWHM in arcminutes
+- `ells`: Multipoles vector
 
 # Returns
-- An `AbstractVector` containing the beam window function values.
+- Beam window function values
 """
 function gaussian_beam_window(fwhm_arcmin, ells::AbstractVector)
     σ = fwhm_arcmin_to_sigma_rad(fwhm_arcmin)
