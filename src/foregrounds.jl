@@ -152,35 +152,46 @@ function dust_tt_power_law(ℓs::AbstractVector, A_pivot, α, β, ν1, ν2, Tdus
 end
 
 """
-    cib_clustered_power(ℓs, A_CIB, α, β, ν, z, Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
+    cib_clustered_power(ℓs, A_CIB, α, β, ν1, ν2, z1, z2, Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
 
-Computes the clustered Cosmic Infrared Background (CIB) power spectrum.
+Computes the clustered Cosmic Infrared Background (CIB) power spectrum for cross-correlations
+between two frequencies and redshift bins.
+
+The power spectrum is given by:
+`D_ℓ = A_CIB * s1 * s2 * √(z1 * z2) * (ℓ/ℓ_pivot)^α`
+
+where `s1` and `s2` are the CIB modified blackbody SED weights for frequencies `ν1` and `ν2`.
+
+This function handles both auto-spectra (when ν1=ν2 and z1=z2) and cross-spectra.
 
 # Arguments
 - `ℓs`: An `AbstractVector` of multipoles.
-- `A_CIB`: Amplitude of the CIB power spectrum.
+- `A_CIB`: Amplitude of the CIB power spectrum at the pivot multipole.
 - `α`: Power-law index for the multipole dependence.
-- `β`: Spectral index for the dust emissivity.
-- `ν`: Frequency.
-- `z`: Redshift.
+- `β`: Spectral index for the dust emissivity (modified blackbody).
+- `ν1`: First frequency in GHz.
+- `ν2`: Second frequency in GHz.
+- `z1`: First redshift factor (related to flux normalization).
+- `z2`: Second redshift factor (related to flux normalization).
 - `Tdust`: Dust temperature in Kelvin.
-- `ν0_cib`: Reference frequency for the CIB SED.
+- `ν0_cib`: Reference frequency for the CIB SED in GHz.
 
 # Keywords
-- `ℓ_pivot`: Pivot multipole, default is 3000.
-- `T_CMB`: Temperature of the CMB in Kelvin.
+- `ℓ_pivot`: Pivot multipole where amplitude is defined, default is 3000.
+- `T_CMB`: Temperature of the CMB in Kelvin, default is T_CMB constant.
 
 # Returns
-- An `AbstractVector` containing the CIB power spectrum `Dℓ`.
-"""
-function cib_clustered_power(ℓs::AbstractVector,
-    A_CIB, α, β, ν, z,
-    Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
-    s = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν; T_CMB=T_CMB)
-    Z = abs(z)
-    return @. (A_CIB * s * s * Z) * (ℓs / ℓ_pivot)^α
-end
+- An `AbstractVector` containing the CIB clustered power spectrum `D_ℓ` at each `ℓ` in `ℓs`.
 
+# Examples
+```julia
+# Auto-spectrum at 353 GHz
+D_ℓ_auto = cib_clustered_power(ℓs, 1.0, 0.8, 1.6, 353.0, 353.0, 1.0, 1.0, 25.0, 150.0)
+
+# Cross-spectrum between 217 and 353 GHz  
+D_ℓ_cross = cib_clustered_power(ℓs, 1.0, 0.8, 1.6, 217.0, 353.0, 0.9, 1.1, 25.0, 150.0)
+```
+"""
 function cib_clustered_power(ℓs::AbstractVector,
     A_CIB, α, β, ν1, ν2, z1, z2,
     Tdust, ν0_cib; ℓ_pivot=3000, T_CMB=T_CMB)
