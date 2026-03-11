@@ -21,5 +21,5 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/JuliaCosmologicalLikelihoods/CMBForegrounds.jl",
-    devbranch="main",
+    devbranch="develop",
 )
