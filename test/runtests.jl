@@ -20,4 +20,5 @@ using Random
     include("test_shot_noise_power.jl")
     include("test_gaussian_beam_window.jl")
     include("test_fwhm_arcmin_to_sigma_rad.jl")
+    include("test_hillipop_foregrounds.jl")
 end

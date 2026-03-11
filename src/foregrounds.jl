@@ -522,3 +522,208 @@ function gaussian_beam_window(fwhm_arcmin, ells::AbstractVector)
     σ = fwhm_arcmin_to_sigma_rad(fwhm_arcmin)
     return @. exp(-0.5 * ells * (ells + 1) * σ^2)
 end
+
+# ============================================================================
+# Hillipop Foreground Models (new additions)
+# ============================================================================
+
+"""
+    dust_model_template_power(ℓs, template, A1, A2, β1, β2, ν1, ν2, ν0_dust, Tdust; T_CMB=T_CMB)
+
+Compute the galactic dust D_ℓ power spectrum using a pre-loaded template and a
+modified black-body (MBB) frequency scaling.
+
+This implements the `dust_model` foreground class from the Planck PR4 Hillipop
+likelihood. The template is a 1-D array of D_ℓ values (normalized at ℓ=3000)
+read from `DUST_Planck_PR4_model_v4.2_{mode}.txt`. Frequency scaling uses the
+same MBB SED function as the CIB.
+
+# Model
+```math
+D_\\ell^\\mathrm{dust}(\\nu_1, \\nu_2) =
+    A_1 \\cdot A_2 \\cdot
+    S(\\beta_1, T_\\mathrm{dust}, \\nu_0, \\nu_1) \\cdot
+    S(\\beta_2, T_\\mathrm{dust}, \\nu_0, \\nu_2) \\cdot
+    T_\\ell
+```
+
+where ``S`` is [`cib_mbb_sed_weight`](@ref) and ``T_\\ell`` is the template.
+
+# Arguments
+- `ℓs`: multipole vector (unused for shape; template already encodes ℓ-dependence)
+- `template`: pre-read D_ℓ dust template, length `lmax+1`, normalized at ℓ=3000
+- `A1`, `A2`: dust amplitudes for first and second map (e.g. `AdustT`, `AdustP`)
+- `β1`, `β2`: dust MBB emissivity indices for each map
+- `ν1`, `ν2`: effective frequencies in GHz for each map
+- `ν0_dust`: reference frequency in GHz (typically 370.5 GHz = effective 353 GHz)
+- `Tdust`: dust temperature in Kelvin (typically 19.6 K)
+
+# Keywords
+- `T_CMB=T_CMB`: CMB temperature for the antenna conversion denominator
+
+# Returns
+- D_ℓ dust power spectrum as a `Vector` of the same length as `template`
+
+# Reference
+JAX source: `foregrounds_hillipop.py`, class `dust_model`, lines 289–335.
+"""
+function dust_model_template_power(ℓs::AbstractVector, template::AbstractVector,
+                                    A1, A2, β1, β2,
+                                    ν1, ν2, ν0_dust, Tdust;
+                                    T_CMB=T_CMB)
+    s1 = cib_mbb_sed_weight(β1, Tdust, ν0_dust, ν1; T_CMB=T_CMB)
+    s2 = cib_mbb_sed_weight(β2, Tdust, ν0_dust, ν2; T_CMB=T_CMB)
+    return @. (A1 * A2 * s1 * s2) * template
+end
+
+
+"""
+    _radio_sed_ratio(ν, ν0, β, T_CMB)
+
+Compute the radio point-source frequency SED ratio:
+```math
+R(\\nu, \\nu_0, \\beta) = \\left(\\frac{\\nu}{\\nu_0}\\right)^\\beta
+    \\Big/ \\frac{(\\partial B/\\partial T)(\\nu, T_\\mathrm{CMB})}{(\\partial B/\\partial T)(\\nu_0, T_\\mathrm{CMB})}
+```
+
+Equivalent to JAX `_radioRatio` in `foregrounds_hillipop.py`, line 82–84.
+"""
+function _radio_sed_ratio(ν, ν0, β, T_CMB)
+    r = ν / ν0
+    return r^β / dBdT_ratio(ν, ν0, T_CMB)
+end
+
+
+"""
+    radio_ps_power(ℓs, A_radio, β_radio, ν1, ν2, ν0; ℓ_pivot=3000, T_CMB=T_CMB)
+
+Compute the radio point-source (shot-noise) D_ℓ power spectrum.
+
+Unresolved radio galaxies contribute a Poisson (flat C_ℓ) spectrum with a
+power-law SED scaled through the antenna conversion.
+
+# Model
+```math
+D_\\ell^\\mathrm{radio}(\\nu_1, \\nu_2) =
+    A_\\mathrm{radio} \\cdot R(\\nu_1) \\cdot R(\\nu_2)
+    \\cdot \\frac{\\ell(\\ell+1)}{\\ell_\\mathrm{pivot}(\\ell_\\mathrm{pivot}+1)}
+```
+
+where ``R(\\nu) = (\\nu/\\nu_0)^\\beta / (\\partial B/\\partial T)(\\nu) /
+(\\partial B/\\partial T)(\\nu_0)`` is [`_radio_sed_ratio`](@ref).
+
+# Arguments
+- `ℓs`: multipole vector
+- `A_radio`: amplitude at `ℓ_pivot`
+- `β_radio`: radio SED power-law index (typically ≈ −0.7)
+- `ν1`, `ν2`: effective frequencies in GHz
+- `ν0`: reference frequency in GHz (typically 143 GHz)
+
+# Keywords
+- `ℓ_pivot=3000`: pivot multipole for the shot-noise amplitude
+- `T_CMB=T_CMB`: CMB temperature
+
+# Returns
+- D_ℓ radio PS spectrum as a `Vector`
+
+# Reference
+JAX source: `foregrounds_hillipop.py`, class `ps_radio`, lines 199–224.
+"""
+function radio_ps_power(ℓs::AbstractVector, A_radio, β_radio, ν1, ν2, ν0;
+                         ℓ_pivot=3000, T_CMB=T_CMB)
+    A_r, β, ν1_, ν2_, ν0_, T = promote(A_radio, β_radio, ν1, ν2, ν0, T_CMB)
+    r1 = _radio_sed_ratio(ν1_, ν0_, β, T)
+    r2 = _radio_sed_ratio(ν2_, ν0_, β, T)
+    norm = ℓ_pivot * (ℓ_pivot + 1)
+    return @. A_r * r1 * r2 * ℓs * (ℓs + 1) / norm
+end
+
+
+"""
+    dusty_ps_power(ℓs, A_dusty, β_cib, ν1, ν2, ν0_cib, Tdust; ℓ_pivot=3000, T_CMB=T_CMB)
+
+Compute the dusty (infrared) point-source (shot-noise) D_ℓ power spectrum.
+
+Unresolved dusty star-forming galaxies contribute a Poisson flat spectrum with
+a modified black-body CIB SED frequency scaling.
+
+# Model
+```math
+D_\\ell^\\mathrm{dusty}(\\nu_1, \\nu_2) =
+    A_\\mathrm{dusty} \\cdot S(\\nu_1) \\cdot S(\\nu_2)
+    \\cdot \\frac{\\ell(\\ell+1)}{\\ell_\\mathrm{pivot}(\\ell_\\mathrm{pivot}+1)}
+```
+
+where ``S(\\nu)`` is [`cib_mbb_sed_weight`](@ref).
+
+# Arguments
+- `ℓs`: multipole vector
+- `A_dusty`: amplitude at `ℓ_pivot`
+- `β_cib`: CIB MBB spectral index (shared with clustered CIB)
+- `ν1`, `ν2`: effective CIB frequencies in GHz
+- `ν0_cib`: CIB reference frequency in GHz (typically 143 GHz)
+- `Tdust`: CIB dust temperature in Kelvin (typically 25 K)
+
+# Keywords
+- `ℓ_pivot=3000`: pivot multipole
+- `T_CMB=T_CMB`: CMB temperature
+
+# Returns
+- D_ℓ dusty PS spectrum as a `Vector`
+
+# Reference
+JAX source: `foregrounds_hillipop.py`, class `ps_dusty`, lines 227–249.
+"""
+function dusty_ps_power(ℓs::AbstractVector, A_dusty, β_cib, ν1, ν2, ν0_cib, Tdust;
+                         ℓ_pivot=3000, T_CMB=T_CMB)
+    s1 = cib_mbb_sed_weight(β_cib, Tdust, ν0_cib, ν1; T_CMB=T_CMB)
+    s2 = cib_mbb_sed_weight(β_cib, Tdust, ν0_cib, ν2; T_CMB=T_CMB)
+    norm = ℓ_pivot * (ℓ_pivot + 1)
+    return @. A_dusty * s1 * s2 * ℓs * (ℓs + 1) / norm
+end
+
+
+"""
+    sub_pixel_power(ℓs, A, fwhm1_arcmin, fwhm2_arcmin; ℓ_pivot=3000)
+
+Compute the sub-pixel effect D_ℓ power spectrum.
+
+In HEALPix maps, residual pixel-beam suppression causes excess power at high ℓ.
+The sub-pixel template is a flat shot-noise shape divided by the two beam window
+functions.
+
+# Model
+```math
+D_\\ell^\\mathrm{sbpx}(f_1, f_2) =
+    A \\cdot \\frac{\\ell(\\ell+1)}{\\ell_\\mathrm{pivot}(\\ell_\\mathrm{pivot}+1)}
+    sub_pixel_power(ℓs, A, fwhm1, fwhm2; ℓ_pivot=3000, ℓ_norm=2500)
+
+Compute the high-ℓ sub-pixel residual power spectrum for HEALPix maps.
+
+The model is proportional to `ℓ(ℓ+1)` and divided by the beam transfer
+functions, normalized such that the shape factor is exactly 1 at `ℓ_norm`.
+
+# Arguments
+- `ℓs`: Vector of multipoles
+- `A`: Amplitude parameter (`Asbpx`)
+- `fwhm1`, `fwhm2`: Beam FWHMs in arcmin for the two frequencies
+
+# Reference
+JAX source: `foregrounds_hillipop.py`, class `subpix`.
+"""
+function sub_pixel_power(ℓs::AbstractVector, A, fwhm1, fwhm2; ℓ_pivot=3000, ℓ_norm=2500)
+    b1 = gaussian_beam_window(fwhm1, ℓs)
+    b2 = gaussian_beam_window(fwhm2, ℓs)
+    
+    ll2pi = @. ℓs * (ℓs + 1) / (ℓ_pivot * (ℓ_pivot + 1))
+    
+    # Compute shape and find normalization factor at ℓ_norm
+    # Note: ℓs array typically contains ℓ_norm. If not exactly at the index, 
+    # we evaluate the formula at ℓ_norm directly for the denominator.
+    b1_norm = gaussian_beam_window(fwhm1, [ℓ_norm])[1]
+    b2_norm = gaussian_beam_window(fwhm2, [ℓ_norm])[1]
+    ll2pi_norm = ℓ_norm * (ℓ_norm + 1) / (ℓ_pivot * (ℓ_pivot + 1))
+    pxl_norm = ll2pi_norm / (b1_norm * b2_norm)
+    
+    return @. A * (ll2pi / (b1 * b2)) / pxl_norm
+end
