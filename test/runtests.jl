@@ -13,6 +13,12 @@ using Random
     include("test_tsz_cross_power.jl")
     include("test_tsz_cib_cross_power.jl")
     include("test_ksz_template_scaled.jl")
+    include("test_ksz_type_stability_ad.jl")
+    include("test_template_helpers_type_stability_ad.jl")
+    include("test_sed_functions_type_stability_ad.jl")
+    include("test_bandpass_type_stability_ad.jl")
+    include("test_cross_type_stability_ad.jl")
+
     include("test_dCl_dell_from_Dl.jl")
     include("test_ssl_response.jl")
     include("test_aberration_response.jl")

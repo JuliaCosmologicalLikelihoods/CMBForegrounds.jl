@@ -727,3 +727,164 @@ function sub_pixel_power(ℓs::AbstractVector, A, fwhm1, fwhm2; ℓ_pivot=3000, 
     
     return @. A * (ll2pi / (b1 * b2)) / pxl_norm
 end
+
+# ------------------------------------------------------------------ #
+# ACT-compatible SED functions                                         #
+# (ACT retains local copies in frequency.jl for hot-path performance; #
+#  these definitions serve SPT, Hillipop, and other consumers.)       #
+# ------------------------------------------------------------------ #
+
+"""
+    x_cmb(nu)
+
+Dimensionless frequency ratio x = hν/(k_B T_CMB), with ν in GHz.
+"""
+# Precompute h/(k_B T_CMB) × 1e9 [K/GHz] to avoid runtime divide.
+const _H_OVER_KT = Ghz_Kelvin / T_CMB
+@inline x_cmb(nu) = _H_OVER_KT * nu
+
+"""
+    rj2cmb(nu)
+
+Rayleigh-Jeans to CMB thermodynamic units conversion factor.
+= (expm1(x)/x)² / exp(x)   where x = hν/(k_B T_CMB)
+
+Used to convert flux-density SEDs (defined in RJ units) to K_CMB.
+"""
+function rj2cmb(nu::T) where T<:Real
+    x = x_cmb(nu)
+    return (expm1(x) / x)^2 / exp(x)
+end
+
+"""
+    cmb2bb(nu)
+
+Proportional to ∂B_ν/∂T|_{T_CMB}, used to normalize passbands:
+
+    cmb2bb(ν) = exp(x) · (ν·x / expm1(x))²,   x = hν/(k_B T_CMB)
+
+The overall dimensional prefactor (2k³T²/c²h²) is omitted — it cancels
+in ratios when constructing the normalized passband weights.
+Mirrors `_cmb2bb` in fgspectra/frequency.py and LAT_MFLike/foreground.py.
+"""
+function cmb2bb(nu::T) where T<:Real
+    x = x_cmb(nu)
+    return exp(x) * (nu * x / expm1(x))^2
+end
+
+function cmb2bb(nu::AbstractVector)
+    return cmb2bb.(nu)
+end
+
+"""
+    tsz_f(nu)
+
+Non-relativistic tSZ spectral function (in K_CMB):
+f(ν) = x·coth(x/2) - 4,   x = hν/(k_B T_CMB)
+"""
+function tsz_f(nu::T) where T<:Real
+    x = x_cmb(nu)
+    return x / tanh(x / 2) - 4
+end
+
+"""
+    tsz_sed(nu, nu_0)
+
+Thermal SZ SED normalized at reference frequency `nu_0` (GHz).
+Returns f_tSZ(ν) / f_tSZ(ν₀).
+"""
+tsz_sed(nu::Real,           nu_0::Real) = tsz_f(nu)   / tsz_f(nu_0)
+tsz_sed(nu::AbstractVector, nu_0::Real) = tsz_f.(nu) ./ tsz_f(nu_0)
+
+"""
+    mbb_sed(nu, nu_0, beta, temp)
+
+Modified blackbody SED normalized at `nu_0` (GHz), in K_CMB:
+
+μ(ν)/μ(ν₀) = (ν/ν₀)^(β+1) · [expm1(x₀)/expm1(x)] · [rj2cmb(ν)/rj2cmb(ν₀)]
+
+where x = hν·10⁹/(k_B·T_d), x₀ = hν₀·10⁹/(k_B·T_d).
+Used for CIB Poisson, CIB clustered, and Galactic dust.
+"""
+function mbb_sed(nu::T, nu_0::Real, beta::Real, temp::Real) where T<:Real
+    # Ghz_Kelvin = h × 1e9 / k_B  [K/GHz]; x = h ν / (k_B T_dust)
+    x   = Ghz_Kelvin * nu   / temp
+    x_0 = Ghz_Kelvin * nu_0 / temp
+    mbb_ratio = (nu / nu_0)^(beta + 1) * expm1(x_0) / expm1(x)
+    rj_ratio  = rj2cmb(nu) / rj2cmb(nu_0)
+    return mbb_ratio * rj_ratio
+end
+
+function mbb_sed(nu::AbstractVector, nu_0::Real, beta::Real, temp::Real)
+    return mbb_sed.(nu, nu_0, beta, temp)
+end
+
+"""
+    radio_sed(nu, nu_0, beta)
+
+Power-law SED in flux units, converted to K_CMB:
+= (ν/ν₀)^β · [rj2cmb(ν) / rj2cmb(ν₀)]
+
+Used for unresolved radio sources. `beta` is typically in [-3.5, -1.5].
+"""
+radio_sed(nu::Real,           nu_0::Real, beta::Real) = (nu/nu_0)^beta * rj2cmb(nu) / rj2cmb(nu_0)
+radio_sed(nu::AbstractVector, nu_0::Real, beta::Real) = (nu ./ nu_0) .^ beta .* rj2cmb.(nu) ./ rj2cmb(nu_0)
+
+"""
+    constant_sed(nu)
+
+Frequency-independent SED (returns 1.0 for any frequency).
+Used for kSZ, which is a blackbody signal (no frequency scaling in K_CMB).
+"""
+constant_sed(::Real)             = 1.0
+constant_sed(nu::AbstractVector) = ones(eltype(nu), length(nu))
+
+# ------------------------------------------------------------------ #
+# ℓ-template helpers                                                   #
+# ------------------------------------------------------------------ #
+
+"""
+    eval_template(T, ell, ell_0; amp=1.0)
+
+Evaluate a D_ℓ template at multipoles `ell`, normalised to 1 at `ell_0`:
+
+    amp × T[ℓ] / T[ℓ₀]
+
+`ell` must be a vector of non-negative integers (used as 1-based indices:
+`T[ℓ+1]`).  Mirrors `fgspectra.CMBSpectra` template normalisation.
+"""
+function eval_template(T::AbstractVector, ell::AbstractVector{<:Integer},
+                       ell_0::Integer; amp::Real=1.0)
+    norm = T[ell_0 + 1]
+    return amp .* T[ell .+ 1] ./ norm
+end
+
+"""
+    eval_template_tilt(T, ell, ell_0, alpha; amp=1.0)
+
+Template rescaled by a power-law tilt (used for the tSZ α_tSZ parameter):
+
+    amp × T[ℓ] / T[ℓ₀] × (ℓ/ℓ₀)^α
+
+Mirrors `fgspectra.PowerLawRescaledTemplate`.
+"""
+function eval_template_tilt(T::AbstractVector, ell::AbstractVector{<:Integer},
+                             ell_0::Integer, alpha::Real; amp::Real=1.0)
+    base = eval_template(T, ell, ell_0; amp=amp)
+    tilt = (ell ./ ell_0) .^ alpha
+    return base .* tilt
+end
+
+"""
+    eval_powerlaw(ell, ell_0, alpha; amp=1.0)
+
+Simple power law in ℓ:
+
+    amp × (ℓ/ℓ₀)^α
+
+Used for Poisson CIB, radio, and galactic dust ℓ-dependence.
+`ell` can be any numeric vector (Int or Float for ℓ×(ℓ+1) quantities).
+"""
+function eval_powerlaw(ell::AbstractVector, ell_0::Real, alpha::Real; amp::Real=1.0)
+    return amp .* (ell ./ ell_0) .^ alpha
+end
