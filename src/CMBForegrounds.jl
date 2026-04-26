@@ -41,6 +41,7 @@ include("foregrounds.jl")
 include("bandpass.jl")
 include("cross.jl")
 include("rrules.jl")
+include("components.jl")
 
 # Export the main functions that we want users to access
 export dimensionless_freq_vars, Bnu_ratio, dBdT_ratio, tsz_g_ratio, cib_mbb_sed_weight, dust_tt_power_law, cib_clustered_power, tsz_cross_power, tsz_cib_cross_power, ksz_template_scaled, dCl_dell_from_Dl, ssl_response, aberration_response, cross_calibration_mean, shot_noise_power, gaussian_beam_window, fwhm_arcmin_to_sigma_rad, dust_model_template_power, radio_ps_power, dusty_ps_power, sub_pixel_power
@@ -50,5 +51,8 @@ export trapz, RawBand, Band, make_band, point_band, shift_and_normalize,
        integrate_sed, integrate_tsz, eval_sed_bands
 export factorized_cross, factorized_cross_te, correlated_cross, build_szxcib_cl,
        assemble_TT, assemble_EE, assemble_TE
+export FGComponent, KSZ, TSZ, CIBPoisson, CIBClustered, CorrelatedTSZxCIB,
+       Radio, DustPL, TSZxCIBAuto, DustTemplate, ShotNoise, SubPixel
+export FGContext, compute_dl, compute_fg_total
 
 end # module CMBForegrounds
