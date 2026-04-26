@@ -98,30 +98,39 @@ struct SubPixel <: FGComponent end
 # ------------------------------------------------------------------ #
 
 """
-    FGContext{T,S}(ell, ell_0, nu_0, bands_T, bands_P, templates)
+    FGContext{S,BT,NT}(ell, ell_0, nu_0, bands_T, bands_P, templates)
 
 Spectrum-specialized context bundling everything a component needs
 besides the parameter NamedTuple `p`:
 
   - `ell`        :: Vector{Int}      — multipole grid
   - `ell_0`      :: Int              — reference multipole (3000)
-  - `nu_0`       :: T                — reference frequency (150 GHz)
-  - `bands_T`    :: Vector{Band{T}}  — bandpass-shifted T bands (1 per exp)
-  - `bands_P`    :: Vector{Band{T}}  — bandpass-shifted P bands (1 per exp)
-  - `templates`  :: NamedTuple       — `T_tsz`, `T_ksz`, `T_cibc`,
+  - `nu_0`       :: Float64          — reference frequency (150 GHz);
+                                       always a physical constant, never
+                                       differentiated, so stays Float64
+  - `bands_T`    :: Vector{Band{BT}} — bandpass-shifted T bands (1 per exp)
+  - `bands_P`    :: Vector{Band{BT}} — bandpass-shifted P bands (1 per exp)
+  - `templates`  :: NT               — `T_tsz`, `T_ksz`, `T_cibc`,
                                        `T_szxcib`, plus survey-specific
                                        templates (e.g. dust template
                                        arrays for Hillipop)
 
+`BT` is the **band element type** — `Float64` at inference time, but
+`Dual{...,Float64,...}` when ForwardDiff differentiates through
+bandpass-shift parameters (which shift the frequency grid). Keeping
+`BT` separate from `nu_0`'s type (always `Float64`) avoids a type
+conflict: shifting bands under AD produces `Band{Dual}`, but `nu_0`
+is a reference constant and never becomes Dual.
+
 The spectrum (`:TT`, `:TE`, `:EE`) is the `S` type parameter so that
 `compute_dl(c, ctx, p)` dispatches to the spectrum-correct method.
 """
-struct FGContext{T<:Real, S, NT<:NamedTuple}
+struct FGContext{S, BT<:Real, NT<:NamedTuple}
     ell       :: Vector{Int}
     ell_0     :: Int
-    nu_0      :: T
-    bands_T   :: Vector{Band{T}}
-    bands_P   :: Vector{Band{T}}
+    nu_0      :: Float64
+    bands_T   :: Vector{Band{BT}}
+    bands_P   :: Vector{Band{BT}}
     templates :: NT
 end
 
@@ -129,12 +138,12 @@ end
 function FGContext(spectrum::Val{S},
                    ell::AbstractVector{<:Integer},
                    ell_0::Integer,
-                   nu_0::T,
-                   bands_T::Vector{Band{T}},
-                   bands_P::Vector{Band{T}},
-                   templates::NT) where {T<:Real, S, NT<:NamedTuple}
-    return FGContext{T,S,NT}(Vector{Int}(ell), Int(ell_0), nu_0,
-                             bands_T, bands_P, templates)
+                   nu_0::Real,
+                   bands_T::Vector{Band{BT}},
+                   bands_P::Vector{Band{BT}},
+                   templates::NT) where {S, BT<:Real, NT<:NamedTuple}
+    return FGContext{S,BT,NT}(Vector{Int}(ell), Int(ell_0), Float64(nu_0),
+                              bands_T, bands_P, templates)
 end
 
 
@@ -142,10 +151,10 @@ end
 # Helpers — typed SED evaluator + ℓ-grid lookups                       #
 # ------------------------------------------------------------------ #
 
-# eval_sed_typed: forces the closure return type to `T` so that the
-# resulting Vector is `Vector{T}` — required for type stability.
-@inline _eval_sed_typed(f::F, bands::AbstractVector{Band{T}}) where {F, T<:Real} =
-    eval_sed_bands((ν::T) -> f(ν), bands)
+# eval_sed_typed: forces the closure input type to `BT` (the band
+# element type) so Julia infers a concrete return type.
+@inline _eval_sed_typed(f::F, bands::AbstractVector{Band{BT}}) where {F, BT<:Real} =
+    eval_sed_bands((ν::BT) -> f(ν), bands)
 
 # ℓ(ℓ+1) grid for Poisson/radio. Returned as Float64 so eval_powerlaw
 # stays in Float64 regardless of `p`'s eltype.
@@ -172,7 +181,7 @@ end
 # ------------------------------------------------------------------ #
 
 # ----- KSZ (TT only) -----
-function compute_dl(::KSZ, ctx::FGContext{T,:TT}, p) where T
+function compute_dl(::KSZ, ctx::FGContext{:TT}, p)
     f_ksz  = _eval_sed_typed(ν -> constant_sed(ν), ctx.bands_T)
     cl_ksz = ksz_template_scaled(eval_template(ctx.templates.T_ksz, ctx.ell, ctx.ell_0),
                                  p.a_kSZ)
@@ -180,17 +189,17 @@ function compute_dl(::KSZ, ctx::FGContext{T,:TT}, p) where T
 end
 
 # ----- TSZ standalone (TT only; for SPT) -----
-function compute_dl(::TSZ, ctx::FGContext{T,:TT}, p) where T
+function compute_dl(::TSZ, ctx::FGContext{:TT}, p)
     f_tsz  = _eval_sed_typed(ν -> tsz_sed(ν, ctx.nu_0), ctx.bands_T)
     cl_tsz = eval_template_tilt(ctx.templates.T_tsz, ctx.ell, ctx.ell_0,
-                                _fg_param(p, :alpha_tSZ, T(0.0));
+                                _fg_param(p, :alpha_tSZ, 0.0);
                                 amp=p.a_tSZ)
     return factorized_cross(f_tsz, cl_tsz)
 end
 
 # ----- CIBClustered standalone (TT only; for SPT) -----
-function compute_dl(::CIBClustered, ctx::FGContext{T,:TT}, p) where T
-    T_d    = _fg_param(p, :T_d, T(9.6))
+function compute_dl(::CIBClustered, ctx::FGContext{:TT}, p)
+    T_d    = _fg_param(p, :T_d,   9.6)
     beta_c = _fg_param(p, :beta_c, p.beta_p)
     f_cibc = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, beta_c, T_d), ctx.bands_T)
     cl_cibc = eval_template(ctx.templates.T_cibc, ctx.ell, ctx.ell_0; amp=p.a_c)
@@ -198,14 +207,14 @@ function compute_dl(::CIBClustered, ctx::FGContext{T,:TT}, p) where T
 end
 
 # ----- CorrelatedTSZxCIB (TT only; ACT/Hillipop flavor) -----
-function compute_dl(::CorrelatedTSZxCIB, ctx::FGContext{T,:TT}, p) where T
-    T_d    = _fg_param(p, :T_d, T(9.6))
+function compute_dl(::CorrelatedTSZxCIB, ctx::FGContext{:TT}, p)
+    T_d    = _fg_param(p, :T_d,    9.6)
     beta_c = _fg_param(p, :beta_c, p.beta_p)
     f_tsz  = _eval_sed_typed(ν -> tsz_sed(ν, ctx.nu_0), ctx.bands_T)
     f_cibc = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, beta_c, T_d), ctx.bands_T)
 
     cl_tsz = eval_template_tilt(ctx.templates.T_tsz, ctx.ell, ctx.ell_0,
-                                _fg_param(p, :alpha_tSZ, T(0.0));
+                                _fg_param(p, :alpha_tSZ, 0.0);
                                 amp=p.a_tSZ)
     cl_cibc   = eval_template(ctx.templates.T_cibc,   ctx.ell, ctx.ell_0; amp=p.a_c)
     cl_szxcib = eval_template(ctx.templates.T_szxcib, ctx.ell, ctx.ell_0;
@@ -217,9 +226,9 @@ function compute_dl(::CorrelatedTSZxCIB, ctx::FGContext{T,:TT}, p) where T
 end
 
 # ----- CIB Poisson (TT only) -----
-function compute_dl(::CIBPoisson, ctx::FGContext{T,:TT}, p) where T
-    T_d     = _fg_param(p, :T_d,     T(9.6))
-    alpha_p = _fg_param(p, :alpha_p, T(1.0))
+function compute_dl(::CIBPoisson, ctx::FGContext{:TT}, p)
+    T_d     = _fg_param(p, :T_d,     9.6)
+    alpha_p = _fg_param(p, :alpha_p, 1.0)
     f_cibp  = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, p.beta_p, T_d), ctx.bands_T)
     ell_clp, ell_0clp = _ell_clp(ctx)
     cl_cibp = eval_powerlaw(ell_clp, ell_0clp, alpha_p)
@@ -227,16 +236,16 @@ function compute_dl(::CIBPoisson, ctx::FGContext{T,:TT}, p) where T
 end
 
 # ----- Radio (TT, TE, EE) -----
-function compute_dl(::Radio, ctx::FGContext{T,:TT}, p) where T
-    alpha_s   = _fg_param(p, :alpha_s, T(1.0))
+function compute_dl(::Radio, ctx::FGContext{:TT}, p)
+    alpha_s   = _fg_param(p, :alpha_s, 1.0)
     f_radio_T = _eval_sed_typed(ν -> radio_sed(ν, ctx.nu_0, p.beta_s), ctx.bands_T)
     ell_clp, ell_0clp = _ell_clp(ctx)
     cl_radio  = eval_powerlaw(ell_clp, ell_0clp, alpha_s)
     return p.a_s .* factorized_cross(f_radio_T, cl_radio)
 end
 
-function compute_dl(::Radio, ctx::FGContext{T,:TE}, p) where T
-    alpha_s   = _fg_param(p, :alpha_s, T(1.0))
+function compute_dl(::Radio, ctx::FGContext{:TE}, p)
+    alpha_s   = _fg_param(p, :alpha_s, 1.0)
     f_radio_T = _eval_sed_typed(ν -> radio_sed(ν, ctx.nu_0, p.beta_s), ctx.bands_T)
     f_radio_P = _eval_sed_typed(ν -> radio_sed(ν, ctx.nu_0, p.beta_s), ctx.bands_P)
     ell_clp, ell_0clp = _ell_clp(ctx)
@@ -244,8 +253,8 @@ function compute_dl(::Radio, ctx::FGContext{T,:TE}, p) where T
     return p.a_pste .* factorized_cross_te(f_radio_T, f_radio_P, cl_radio)
 end
 
-function compute_dl(::Radio, ctx::FGContext{T,:EE}, p) where T
-    alpha_s   = _fg_param(p, :alpha_s, T(1.0))
+function compute_dl(::Radio, ctx::FGContext{:EE}, p)
+    alpha_s   = _fg_param(p, :alpha_s, 1.0)
     f_radio_P = _eval_sed_typed(ν -> radio_sed(ν, ctx.nu_0, p.beta_s), ctx.bands_P)
     ell_clp, ell_0clp = _ell_clp(ctx)
     cl_radio  = eval_powerlaw(ell_clp, ell_0clp, alpha_s)
@@ -253,29 +262,29 @@ function compute_dl(::Radio, ctx::FGContext{T,:EE}, p) where T
 end
 
 # ----- DustPL (TT, TE, EE) -----
-function compute_dl(::DustPL, ctx::FGContext{T,:TT}, p) where T
-    beta_d   = _fg_param(p, :beta_d,   T(1.5))
-    T_effd   = _fg_param(p, :T_effd,   T(19.6))
-    alpha_dT = _fg_param(p, :alpha_dT, T(-0.6))
+function compute_dl(::DustPL, ctx::FGContext{:TT}, p)
+    beta_d   = _fg_param(p, :beta_d,   1.5)
+    T_effd   = _fg_param(p, :T_effd,   19.6)
+    alpha_dT = _fg_param(p, :alpha_dT, -0.6)
     f_dust_T = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, beta_d, T_effd), ctx.bands_T)
     cl_dustT = eval_powerlaw(Float64.(ctx.ell), 500.0, alpha_dT)
     return p.a_gtt .* factorized_cross(f_dust_T, cl_dustT)
 end
 
-function compute_dl(::DustPL, ctx::FGContext{T,:TE}, p) where T
-    beta_d   = _fg_param(p, :beta_d,   T(1.5))
-    T_effd   = _fg_param(p, :T_effd,   T(19.6))
-    alpha_dE = _fg_param(p, :alpha_dE, T(-0.4))
+function compute_dl(::DustPL, ctx::FGContext{:TE}, p)
+    beta_d   = _fg_param(p, :beta_d,   1.5)
+    T_effd   = _fg_param(p, :T_effd,   19.6)
+    alpha_dE = _fg_param(p, :alpha_dE, -0.4)
     f_dust_T = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, beta_d, T_effd), ctx.bands_T)
     f_dust_P = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, beta_d, T_effd), ctx.bands_P)
     cl_dustE = eval_powerlaw(Float64.(ctx.ell), 500.0, alpha_dE)
     return p.a_gte .* factorized_cross_te(f_dust_T, f_dust_P, cl_dustE)
 end
 
-function compute_dl(::DustPL, ctx::FGContext{T,:EE}, p) where T
-    beta_d   = _fg_param(p, :beta_d,   T(1.5))
-    T_effd   = _fg_param(p, :T_effd,   T(19.6))
-    alpha_dE = _fg_param(p, :alpha_dE, T(-0.4))
+function compute_dl(::DustPL, ctx::FGContext{:EE}, p)
+    beta_d   = _fg_param(p, :beta_d,   1.5)
+    T_effd   = _fg_param(p, :T_effd,   19.6)
+    alpha_dE = _fg_param(p, :alpha_dE, -0.4)
     f_dust_P = _eval_sed_typed(ν -> mbb_sed(ν, ctx.nu_0, beta_d, T_effd), ctx.bands_P)
     cl_dustE = eval_powerlaw(Float64.(ctx.ell), 500.0, alpha_dE)
     return p.a_gee .* factorized_cross(f_dust_P, cl_dustE)
