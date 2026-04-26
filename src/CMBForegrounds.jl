@@ -44,7 +44,7 @@ include("rrules.jl")
 include("components.jl")
 
 # Export the main functions that we want users to access
-export dimensionless_freq_vars, Bnu_ratio, dBdT_ratio, tsz_g_ratio, cib_mbb_sed_weight, dust_tt_power_law, cib_clustered_power, tsz_cross_power, tsz_cib_cross_power, ksz_template_scaled, dCl_dell_from_Dl, ssl_response, aberration_response, cross_calibration_mean, shot_noise_power, gaussian_beam_window, fwhm_arcmin_to_sigma_rad, dust_model_template_power, radio_ps_power, dusty_ps_power, sub_pixel_power
+export dimensionless_freq_vars, Bnu_ratio, dBdT_ratio, tsz_g_ratio, cib_mbb_sed_weight, dust_tt_power_law, cib_clustered_power, cib_clustered_template_power, tsz_cross_power, tsz_cib_cross_power, tsz_cib_template_power, ksz_template_scaled, dCl_dell_from_Dl, ssl_response, aberration_response, cross_calibration_mean, shot_noise_power, gaussian_beam_window, fwhm_arcmin_to_sigma_rad, dust_model_template_power, radio_ps_power, dusty_ps_power, sub_pixel_power
 export eval_template, eval_template_tilt, eval_powerlaw
 export x_cmb, rj2cmb, cmb2bb, tsz_f, tsz_sed, mbb_sed, radio_sed, constant_sed
 export trapz, RawBand, Band, make_band, point_band, shift_and_normalize,

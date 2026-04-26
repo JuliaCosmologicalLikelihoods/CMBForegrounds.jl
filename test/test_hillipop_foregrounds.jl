@@ -95,10 +95,96 @@ using CMBForegrounds
         result2 = sub_pixel_power(ℓs, 2.0, fwhm, fwhm; ℓ_pivot=3000)
         @test all(isapprox.(result2 ./ result, 2.0; rtol=1e-10))
 
-        # Wider beam gives larger sub-pixel correction at fixed amplitude
-        result_wide  = sub_pixel_power([2000], 1.0, 9.68, 9.68; ℓ_pivot=3000)
-        result_narrow = sub_pixel_power([2000], 1.0, 5.02, 5.02; ℓ_pivot=3000)
+        # Wider beam gives larger sub-pixel correction at fixed amplitude.
+        # Evaluated above the normalization anchor (ℓ_norm = 2500): below the
+        # anchor the ratio inverts because the wider beam dies faster at ℓ_norm
+        # than at the test ℓ.
+        result_wide  = sub_pixel_power([3000], 1.0, 9.68, 9.68; ℓ_pivot=3000)
+        result_narrow = sub_pixel_power([3000], 1.0, 5.02, 5.02; ℓ_pivot=3000)
         # Wider beam suppresses more → larger 1/B² → larger result
         @test result_wide[1] > result_narrow[1]
+    end
+
+    # ---------------------------------------------------------
+    # cib_clustered_template_power
+    # ---------------------------------------------------------
+    @testset "cib_clustered_template_power" begin
+        tmpl = collect(range(0.5, 1.5, length=length(ℓs)))
+        Acib, β, Tdust, ν0_cib = 4.0, 1.75, 25.0, 143.0
+        ν1, ν2 = 147.5, 228.1   # Hillipop effective 143, 217
+
+        result = cib_clustered_template_power(tmpl, Acib, β, Tdust, ν0_cib, ν1, ν2)
+        @test length(result) == length(tmpl)
+        @test all(isfinite.(result))
+        @test all(result .> 0.0)
+
+        # At ν=ν0=ν_ref, SED ratio = 1 → result = A * template
+        res_ref = cib_clustered_template_power(tmpl, Acib, β, Tdust, ν0_cib, ν0_cib, ν0_cib)
+        @test all(isapprox.(res_ref, Acib .* tmpl; rtol=1e-12))
+
+        # Amplitude scaling
+        result2 = cib_clustered_template_power(tmpl, 2 * Acib, β, Tdust, ν0_cib, ν1, ν2)
+        @test all(isapprox.(result2 ./ result, 2.0; rtol=1e-12))
+
+        # Equivalence with the inline form: A * s1 * s2 .* template
+        s1 = CMBForegrounds.cib_mbb_sed_weight(β, Tdust, ν0_cib, ν1)
+        s2 = CMBForegrounds.cib_mbb_sed_weight(β, Tdust, ν0_cib, ν2)
+        expected = @. (Acib * s1 * s2) * tmpl
+        @test all(isapprox.(result, expected; rtol=1e-12))
+
+        # Symmetry under (ν1, ν2) swap
+        result_swapped = cib_clustered_template_power(tmpl, Acib, β, Tdust, ν0_cib, ν2, ν1)
+        @test all(isapprox.(result, result_swapped; rtol=1e-12))
+    end
+
+    # ---------------------------------------------------------
+    # tsz_cib_template_power
+    # ---------------------------------------------------------
+    @testset "tsz_cib_template_power" begin
+        tmpl = collect(range(0.1, 0.6, length=length(ℓs)))
+        ξ, A_tSZ, A_CIB = 0.1, 5.0, 4.0
+        β, Tdust = 1.75, 25.0
+        ν0_tsz, ν0_cib = 143.0, 143.0
+        ν_sz1, ν_sz2 = 100.24, 222.044
+        ν_cib1, ν_cib2 = 105.2, 228.1
+
+        result = tsz_cib_template_power(tmpl, ξ, A_tSZ, A_CIB, β, Tdust,
+                                         ν0_tsz, ν0_cib,
+                                         ν_sz1, ν_sz2, ν_cib1, ν_cib2)
+        @test length(result) == length(tmpl)
+        @test all(isfinite.(result))
+
+        # ξ=0 → identically zero
+        result_xi0 = tsz_cib_template_power(tmpl, 0.0, A_tSZ, A_CIB, β, Tdust,
+                                             ν0_tsz, ν0_cib,
+                                             ν_sz1, ν_sz2, ν_cib1, ν_cib2)
+        @test all(result_xi0 .== 0.0)
+
+        # ξ scales linearly
+        result_2xi = tsz_cib_template_power(tmpl, 2 * ξ, A_tSZ, A_CIB, β, Tdust,
+                                             ν0_tsz, ν0_cib,
+                                             ν_sz1, ν_sz2, ν_cib1, ν_cib2)
+        @test all(isapprox.(result_2xi ./ result, 2.0; rtol=1e-12))
+
+        # Equivalence with the inline form
+        g1 = CMBForegrounds.tsz_g_ratio(ν_sz1, ν0_tsz, CMBForegrounds.T_CMB)
+        g2 = CMBForegrounds.tsz_g_ratio(ν_sz2, ν0_tsz, CMBForegrounds.T_CMB)
+        s1 = CMBForegrounds.cib_mbb_sed_weight(β, Tdust, ν0_cib, ν_cib1)
+        s2 = CMBForegrounds.cib_mbb_sed_weight(β, Tdust, ν0_cib, ν_cib2)
+        factor = -ξ * sqrt(A_CIB * A_tSZ) * (g1 * s2 + g2 * s1)
+        expected = factor .* tmpl
+        @test all(isapprox.(result, expected; rtol=1e-12))
+
+        # Symmetry under simultaneous (sz, cib) leg swap
+        result_swap = tsz_cib_template_power(tmpl, ξ, A_tSZ, A_CIB, β, Tdust,
+                                              ν0_tsz, ν0_cib,
+                                              ν_sz2, ν_sz1, ν_cib2, ν_cib1)
+        @test all(isapprox.(result, result_swap; rtol=1e-12))
+
+        # √(A·A) = sign-correct factor: doubling both A_tSZ and A_CIB → ×2
+        result_2A = tsz_cib_template_power(tmpl, ξ, 2 * A_tSZ, 2 * A_CIB, β, Tdust,
+                                            ν0_tsz, ν0_cib,
+                                            ν_sz1, ν_sz2, ν_cib1, ν_cib2)
+        @test all(isapprox.(result_2A ./ result, 2.0; rtol=1e-12))
     end
 end

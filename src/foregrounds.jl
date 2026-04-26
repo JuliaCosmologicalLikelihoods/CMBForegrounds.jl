@@ -224,6 +224,103 @@ function cib_clustered_power(ℓs::AbstractVector,
 end
 
 """
+    cib_clustered_template_power(template, A_CIB, β, Tdust, ν0_cib, ν1, ν2; T_CMB=T_CMB)
+
+Template-based clustered CIB cross-power spectrum.
+
+```math
+D_\\ell^\\mathrm{CIB}(\\nu_1,\\nu_2) = A_\\mathrm{CIB} \\cdot S(\\nu_1) \\cdot S(\\nu_2) \\cdot T_\\ell
+```
+
+where ``S(\\nu)`` is [`cib_mbb_sed_weight`](@ref) and ``T_\\ell`` is a pre-loaded
+clustered-CIB D_ℓ template (already normalized to its pivot scale internally).
+
+This is the template-based variant of [`cib_clustered_power`](@ref) (which uses
+a power-law in ℓ); both share the same MBB frequency scaling.
+
+# Arguments
+- `template`: pre-read D_ℓ template, length `lmax+1`
+- `A_CIB`: amplitude
+- `β`: dust emissivity index
+- `Tdust`: dust temperature in Kelvin (typically 25 K)
+- `ν0_cib`: reference frequency in GHz
+- `ν1`, `ν2`: effective frequencies in GHz
+
+# Keywords
+- `T_CMB=T_CMB`: CMB temperature
+
+# Returns
+- D_ℓ clustered CIB power spectrum as a `Vector` of `length(template)`
+
+# Reference
+JAX source: `foregrounds_hillipop.py`, class `cib_model`.
+"""
+function cib_clustered_template_power(template::AbstractVector,
+                                       A_CIB, β, Tdust, ν0_cib, ν1, ν2;
+                                       T_CMB=T_CMB)
+    s1 = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν1; T_CMB=T_CMB)
+    s2 = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν2; T_CMB=T_CMB)
+    return @. (A_CIB * s1 * s2) * template
+end
+
+
+"""
+    tsz_cib_template_power(template, ξ, A_tSZ, A_CIB, β, Tdust, ν0_tsz, ν0_cib, ν_sz1, ν_sz2, ν_cib1, ν_cib2; T_CMB=T_CMB)
+
+Template-based correlated tSZ × CIB cross-power spectrum.
+
+```math
+D_\\ell^{\\mathrm{tSZ}\\times\\mathrm{CIB}} =
+    -\\xi \\sqrt{|A_\\mathrm{CIB} A_\\mathrm{tSZ}|}
+    \\bigl[g(\\nu_{sz,1})\\,s(\\nu_{cib,2}) + g(\\nu_{sz,2})\\,s(\\nu_{cib,1})\\bigr] \\cdot T_\\ell
+```
+
+where ``g(\\nu) = `` [`tsz_g_ratio`](@ref) and ``s(\\nu) = `` [`cib_mbb_sed_weight`](@ref).
+
+The `abs` inside the square root mirrors the guard already in
+[`tsz_cib_cross_power`](@ref); it keeps the gradient finite at the prior
+boundary (A → 0) and avoids `DomainError` when an HMC leapfrog step proposes a
+transient negative amplitude.
+
+This is the template-based variant of [`tsz_cib_cross_power`](@ref) (which uses
+the auto-cross sqrt form). Used directly by the Planck PR4 Hillipop likelihood.
+ACT DR6 implements equivalent math via the fused `assemble_TT` path
+(`build_szxcib_cl` + `correlated_cross`), not through this helper.
+
+# Arguments
+- `template`: pre-read SZ×CIB D_ℓ template, length `lmax+1`
+- `ξ`: tSZ–CIB correlation coefficient (≥ 0)
+- `A_tSZ`, `A_CIB`: tSZ and clustered-CIB amplitudes (used in `√(A_CIB·A_tSZ)`)
+- `β`: CIB MBB emissivity index
+- `Tdust`: CIB dust temperature in Kelvin (typically 25 K)
+- `ν0_tsz`, `ν0_cib`: reference frequencies in GHz
+- `ν_sz1`, `ν_sz2`: effective tSZ frequencies for maps 1 and 2
+- `ν_cib1`, `ν_cib2`: effective CIB frequencies for maps 1 and 2
+
+# Keywords
+- `T_CMB=T_CMB`: CMB temperature
+
+# Returns
+- D_ℓ tSZ×CIB cross power spectrum as a `Vector` of `length(template)`
+
+# Reference
+JAX source: `foregrounds_hillipop.py`, class `szxcib_model`.
+"""
+function tsz_cib_template_power(template::AbstractVector,
+                                 ξ, A_tSZ, A_CIB, β, Tdust,
+                                 ν0_tsz, ν0_cib,
+                                 ν_sz1, ν_sz2, ν_cib1, ν_cib2;
+                                 T_CMB=T_CMB)
+    g1 = tsz_g_ratio(ν_sz1, ν0_tsz, T_CMB)
+    g2 = tsz_g_ratio(ν_sz2, ν0_tsz, T_CMB)
+    s1 = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν_cib1; T_CMB=T_CMB)
+    s2 = cib_mbb_sed_weight(β, Tdust, ν0_cib, ν_cib2; T_CMB=T_CMB)
+    factor = -ξ * sqrt(abs(A_CIB * A_tSZ)) * (g1 * s2 + g2 * s1)
+    return @. factor * template
+end
+
+
+"""
     tsz_cross_power(template, A_tSZ, ν1, ν2, ν0, α_tSZ, ℓ_pivot, ℓs; T_CMB=T_CMB)
 
 Computes the thermal Sunyaev-Zel'dovich cross-power spectrum.
@@ -684,29 +781,36 @@ end
 
 
 """
-    sub_pixel_power(ℓs, A, fwhm1_arcmin, fwhm2_arcmin; ℓ_pivot=3000)
-
-Compute the sub-pixel effect D_ℓ power spectrum.
-
-In HEALPix maps, residual pixel-beam suppression causes excess power at high ℓ.
-The sub-pixel template is a flat shot-noise shape divided by the two beam window
-functions.
-
-# Model
-```math
-D_\\ell^\\mathrm{sbpx}(f_1, f_2) =
-    A \\cdot \\frac{\\ell(\\ell+1)}{\\ell_\\mathrm{pivot}(\\ell_\\mathrm{pivot}+1)}
     sub_pixel_power(ℓs, A, fwhm1, fwhm2; ℓ_pivot=3000, ℓ_norm=2500)
 
 Compute the high-ℓ sub-pixel residual power spectrum for HEALPix maps.
 
-The model is proportional to `ℓ(ℓ+1)` and divided by the beam transfer
-functions, normalized such that the shape factor is exactly 1 at `ℓ_norm`.
+In HEALPix maps, residual pixel-beam suppression causes excess power at high ℓ.
+The sub-pixel template is a flat shot-noise shape divided by the two beam window
+functions, with the shape factor normalized to be exactly 1 at `ℓ_norm`.
+
+# Model
+```math
+D_\\ell^\\mathrm{sbpx}(f_1, f_2) =
+    A \\cdot \\frac{\\ell(\\ell + 1)}{\\ell_\\mathrm{pivot}(\\ell_\\mathrm{pivot} + 1)}
+    \\cdot \\frac{1}{B_{f_1}(\\ell)\\, B_{f_2}(\\ell)} \\cdot N(\\ell_\\mathrm{norm})
+```
+
+where ``B_f(\\ell)`` is the Gaussian beam window function for FWHM ``f``, and
+``N(\\ell_\\mathrm{norm})`` normalizes the shape such that the multiplicative
+factor on `A` equals 1 at ``\\ell = \\ell_\\mathrm{norm}``.
 
 # Arguments
 - `ℓs`: Vector of multipoles
 - `A`: Amplitude parameter (`Asbpx`)
 - `fwhm1`, `fwhm2`: Beam FWHMs in arcmin for the two frequencies
+
+# Keywords
+- `ℓ_pivot=3000`: pivot multipole for the `ℓ(ℓ+1)` shot-noise normalization
+- `ℓ_norm=2500`: multipole at which the shape factor is set to 1
+
+# Returns
+- D_ℓ sub-pixel power spectrum as a `Vector` of `length(ℓs)`
 
 # Reference
 JAX source: `foregrounds_hillipop.py`, class `subpix`.

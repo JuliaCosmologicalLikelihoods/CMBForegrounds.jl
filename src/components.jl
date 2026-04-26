@@ -69,7 +69,8 @@ The Addison+12 / fgspectra-style correlated 2×2 (tSZ, CIBC) block:
 with `C_tSZ,tSZ = cl_tsz`, `C_CIBC,CIBC = cl_cibc`, and
 `C_tSZ,CIBC = C_CIBC,tSZ = cl_szxcib = -ξ √(a_tSZ a_c) T_szxcib(ℓ)`.
 
-Used by ACT DR6 and Hillipop. SPT uses `TSZxCIBAuto` instead.
+Used by ACT DR6 and Hillipop. SPT uses an auto-cross flavor (see
+`TSZxCIBAuto`); the SPT registry adapter is not yet wired (Step 7 work).
 """
 struct CorrelatedTSZxCIB <: FGComponent end
 
@@ -218,7 +219,7 @@ function compute_dl(::CorrelatedTSZxCIB, ctx::FGContext{:TT}, p)
                                 amp=p.a_tSZ)
     cl_cibc   = eval_template(ctx.templates.T_cibc,   ctx.ell, ctx.ell_0; amp=p.a_c)
     cl_szxcib = eval_template(ctx.templates.T_szxcib, ctx.ell, ctx.ell_0;
-                              amp=-p.xi * sqrt(p.a_tSZ * p.a_c))
+                              amp=-p.xi * sqrt(abs(p.a_tSZ * p.a_c)))
 
     F = vcat(reshape(f_tsz, 1, :), reshape(f_cibc, 1, :))   # (2, n_freq)
     C = build_szxcib_cl(cl_tsz, cl_cibc, cl_szxcib)
@@ -289,6 +290,27 @@ function compute_dl(::DustPL, ctx::FGContext{:EE}, p)
     cl_dustE = eval_powerlaw(Float64.(ctx.ell), 500.0, alpha_dE)
     return p.a_gee .* factorized_cross(f_dust_P, cl_dustE)
 end
+
+
+# ------------------------------------------------------------------ #
+# Stubs for components reserved for future SPT/Hillipop adaptors        #
+# ------------------------------------------------------------------ #
+# These component types are part of the public API and document the
+# intended extension surface, but `compute_dl` implementations have not
+# been wired yet. They will be implemented when SPT and Hillipop migrate
+# to the registry (Step 7+ in the unification plan). Calling them today
+# yields an informative error rather than a silent `MethodError`.
+
+@noinline _registry_unimplemented(c, ::FGContext{S}) where {S} =
+    error(string("compute_dl(::", typeof(c), ", ::FGContext{:", S,
+                 "}, p) is not implemented yet. This component is a ",
+                 "registry placeholder for a future SPT/Hillipop adapter ",
+                 "(Step 7+ of the unification plan)."))
+
+compute_dl(c::TSZxCIBAuto,  ctx::FGContext, p) = _registry_unimplemented(c, ctx)
+compute_dl(c::DustTemplate, ctx::FGContext, p) = _registry_unimplemented(c, ctx)
+compute_dl(c::ShotNoise,    ctx::FGContext, p) = _registry_unimplemented(c, ctx)
+compute_dl(c::SubPixel,     ctx::FGContext, p) = _registry_unimplemented(c, ctx)
 
 
 # ------------------------------------------------------------------ #

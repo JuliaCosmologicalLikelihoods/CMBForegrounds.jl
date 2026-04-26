@@ -15,6 +15,7 @@ using Random
     include("test_ksz_template_scaled.jl")
     include("test_ksz_type_stability_ad.jl")
     include("test_template_helpers_type_stability_ad.jl")
+    include("test_template_powers_type_stability_ad.jl")
     include("test_sed_functions_type_stability_ad.jl")
     include("test_bandpass_type_stability_ad.jl")
     include("test_cross_type_stability_ad.jl")
