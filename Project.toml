@@ -1,7 +1,7 @@
 name = "CMBForegrounds"
 uuid = "fc0df5e6-91e0-40ab-a79d-ad91d7e99724"
 authors = ["Marco Bonici <bonici.marco@gmail.com>"]
-version = "0.2.0"
+version = "0.3.0"
 
 [deps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"

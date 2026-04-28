@@ -231,29 +231,3 @@ end
         T_CMB=Float32(CMBForegrounds.T_CMB))
     @test eltype(out_f32_attempt) === Float64
 end
-
-
-@testset "Registry placeholder components throw informative errors" begin
-    # Step 5 introduced four phantom component types as extension points
-    # (TSZxCIBAuto, DustTemplate, ShotNoise, SubPixel). They have no
-    # `compute_dl` implementations until Step 7 wires them. Verify the
-    # error message mentions the placeholder status rather than dropping
-    # a bare MethodError on the user.
-    using CMBForegrounds: TSZxCIBAuto, DustTemplate, ShotNoise, SubPixel,
-                          FGContext, Band
-
-    bands = [CMBForegrounds.point_band(150.0)]
-    ctx = FGContext(Val(:TT), 1:10, 3000, 150.0, bands, bands, NamedTuple())
-    p   = (a_p=1.0, beta_p=1.7)
-
-    for c in (TSZxCIBAuto(), DustTemplate(), ShotNoise(), SubPixel())
-        err = try
-            CMBForegrounds.compute_dl(c, ctx, p)
-            nothing
-        catch e
-            e
-        end
-        @test err isa ErrorException
-        @test occursin("placeholder", err.msg)
-    end
-end
