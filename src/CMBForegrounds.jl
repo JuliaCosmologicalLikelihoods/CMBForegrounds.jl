@@ -13,16 +13,16 @@ const T_CMB = 2.72548  # CMB temperature
 """
     h
 
-Planck's constant in J⋅s (6.62606957×10⁻³⁴ J⋅s).
+Planck's constant in J⋅s (6.62607015×10⁻³⁴ J⋅s, CODATA 2018 exact value).
 """
-const h = 6.62606957e-34  # Planck's constant
+const h = 6.62607015e-34  # Planck's constant (CODATA 2018)
 
 """
     kB
 
-Boltzmann constant in J/K (1.3806488×10⁻²³ J/K).
+Boltzmann constant in J/K (1.380649×10⁻²³ J/K, CODATA 2018 exact value).
 """
-const kB = 1.3806488e-23  # Boltzmann constant
+const kB = 1.380649e-23  # Boltzmann constant (CODATA 2018)
 
 """
     Ghz_Kelvin
