@@ -495,7 +495,9 @@ function ssl_response(ℓs::AbstractVector, κ, Dℓ::AbstractVector)
 
     dCℓ = dCl_dell_from_Dl(ℓs, Dℓ)
 
-    out = similar(Dℓ)
+    # Element type must promote with κ so that AD (e.g. ForwardDiff.Dual)
+    # propagates correctly when κ is a non-Float64 scalar.
+    out = similar(Dℓ, promote_type(eltype(Dℓ), typeof(κ)))
     @inbounds @simd for i in eachindex(out, ℓs, dCℓ, Dℓ)
         ℓ = ℓs[i]
         pref = (ℓ * ℓ * (ℓ + 1)) / (2π)  # ℓ * ℓ(ℓ+1)/(2π)
@@ -529,7 +531,9 @@ function aberration_response(ℓs::AbstractVector, ab_coeff, Dℓ::AbstractVecto
     @assert length(ℓs) == length(Dℓ) "ells and Dℓ must have the same length"
     dCℓ = dCl_dell_from_Dl(ℓs, Dℓ)
 
-    out = similar(Dℓ)
+    # Element type must promote with ab_coeff so that AD (e.g. ForwardDiff.Dual)
+    # propagates correctly when ab_coeff is a non-Float64 scalar.
+    out = similar(Dℓ, promote_type(eltype(Dℓ), typeof(ab_coeff)))
     @inbounds @simd for i in eachindex(out, ℓs, dCℓ, Dℓ)
         ℓ = ℓs[i]
         pref = (ℓ * ℓ * (ℓ + 1)) / (2π)   # ℓ * ℓ(ℓ+1)/(2π)
