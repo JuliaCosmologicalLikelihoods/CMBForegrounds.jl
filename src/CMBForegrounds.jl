@@ -43,6 +43,7 @@ include("bandpass.jl")
 include("sed.jl")
 include("correlation.jl")
 include("cross.jl")
+include("instrument.jl")
 include("rrules.jl")
 
 # Export the main functions that we want users to access
@@ -56,5 +57,10 @@ export trapz, RawBand, Band, AbstractBand, DeltaBand, ChromaticBeam, make_band, 
        integrate_sed, integrate_tsz, eval_sed_bands, integrate_chromatic_sed, eval_chromatic_sed_bands
 export factorized_cross, factorized_cross_te, correlated_cross, build_szxcib_cl,
        assemble_TT, assemble_EE, assemble_TE
+export calibration_factor, apply_calibration,
+       additive_template, add_template,
+       te_leakage, et_leakage, ee_leakage, apply_te_leakage, apply_ee_leakage,
+       beam_eigenmode_response, beam_eigenmode_cross,
+       apply_ssl, apply_aberration
 
 end # module CMBForegrounds
