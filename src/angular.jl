@@ -68,8 +68,12 @@ struct TemplateShape{V<:AbstractVector, T<:Union{Nothing, Real}, I<:Integer} <: 
     ell_min::I
 end
 
-function TemplateShape(template::AbstractVector; ell_0=nothing, ell_min::Integer=0)
-    return TemplateShape(template, ell_0, ell_min)
+function TemplateShape(template::AbstractVector, ell_0::Union{Nothing, Real}; ell_min::Integer=0)
+    return TemplateShape{typeof(template), typeof(ell_0), typeof(ell_min)}(template, ell_0, ell_min)
+end
+
+function TemplateShape(template::AbstractVector; ell_0::Union{Nothing, Real}=3000.0, ell_min::Integer=0)
+    return TemplateShape(template, ell_0; ell_min=ell_min)
 end
 
 """
@@ -91,9 +95,13 @@ end
 
 TiltedTemplateShape(shape::AbstractAngularModel) = TiltedTemplateShape(shape, 3000.0)
 
-function TiltedTemplateShape(template::AbstractVector; ell_0::Real=3000.0, ell_min::Integer=0)
+function TiltedTemplateShape(template::AbstractVector, ell_0::Real; ell_min::Integer=0)
     base = TemplateShape(template; ell_0=nothing, ell_min=ell_min)
     return TiltedTemplateShape(base, ell_0)
+end
+
+function TiltedTemplateShape(template::AbstractVector; ell_0::Real=3000.0, ell_min::Integer=0)
+    return TiltedTemplateShape(template, ell_0; ell_min=ell_min)
 end
 
 # ------------------------------------------------------------------ #
@@ -125,15 +133,17 @@ end
 end
 
 @inline function _template_val(model::TemplateShape, ell::AbstractVector)
-    norm = model.ell_0 === nothing ? one(eltype(model.template)) : model.template[Int(model.ell_0) - model.ell_min + 1]
-    if length(ell) == length(model.template) && first(ell) == model.ell_min
-        if norm == 1
+    if length(ell) == length(model.template)
+        if model.ell_0 === nothing
             return model.template
         else
-            return model.template ./ norm
+            idx0 = findfirst(isequal(model.ell_0), ell)
+            norm = idx0 !== nothing ? model.template[idx0] : one(eltype(model.template))
+            return norm == 1 ? model.template : model.template ./ norm
         end
     end
-    idx = @. Int(ell) - model.ell_min + 1
+    norm = model.ell_0 === nothing ? one(eltype(model.template)) : model.template[round(Int, model.ell_0) - model.ell_min + 1]
+    idx = @. round(Int, ell) - model.ell_min + 1
     vals = model.template[idx]
     if norm == 1
         return vals

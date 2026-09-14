@@ -246,7 +246,8 @@ D_\\ell = \\mathrm{amp} \\cdot S(\\nu_1) \\cdot S(\\nu_2) \\cdot D_\\ell^\\mathr
 ```
 """
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        nu1, nu2, amp::Real, sed_args...; angular_args...)
+                        nu1::Union{Real, AbstractVector{<:Real}}, nu2::Union{Real, AbstractVector{<:Real}},
+                        amp::Real, sed_args...; angular_args...)
     s1 = sed_weight(sed, nu1, sed_args...)
     s2 = sed_weight(sed, nu2, sed_args...)
     ang = angular_power(angular, ells, values(angular_args)...; amp=amp)
@@ -254,7 +255,8 @@ function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::A
 end
 
 function eval_component(comp::SkyComponent, ells::AbstractVector,
-                        nu1, nu2, amp::Real, sed_args...; angular_args...)
+                        nu1::Union{Real, AbstractVector{<:Real}}, nu2::Union{Real, AbstractVector{<:Real}},
+                        amp::Real, sed_args...; angular_args...)
     return eval_component(comp.sed, comp.angular, ells, nu1, nu2, amp, sed_args...; angular_args...)
 end
 
@@ -264,7 +266,8 @@ end
 Evaluate a cross-spectrum with different SED properties on leg 1 and leg 2 (e.g. TE or distinct map emissivities).
 """
 function eval_component(sed1::AbstractSED, sed2::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        nu1, nu2, amp::Real, sed1_args::Tuple=(), sed2_args::Tuple=(); angular_args...)
+                        nu1::Union{Real, AbstractVector{<:Real}}, nu2::Union{Real, AbstractVector{<:Real}},
+                        amp::Real, sed1_args::Tuple=(), sed2_args::Tuple=(); angular_args...)
     s1 = sed_weight(sed1, nu1, sed1_args...)
     s2 = sed_weight(sed2, nu2, sed2_args...)
     ang = angular_power(angular, ells, values(angular_args)...; amp=amp)
@@ -281,6 +284,11 @@ function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::A
     f = [sed_weight(sed, b, sed_args...) for b in bands]
     cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
     return factorized_cross(f, cl)
+end
+
+function eval_component(comp::SkyComponent, ells::AbstractVector,
+                        bands::AbstractVector{<:AbstractBand}, amp::Real, sed_args...; angular_args...)
+    return eval_component(comp.sed, comp.angular, ells, bands, amp, sed_args...; angular_args...)
 end
 
 """
