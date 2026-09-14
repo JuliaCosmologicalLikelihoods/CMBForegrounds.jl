@@ -20,6 +20,11 @@ Provides mathematical representations for correlations between sky components
 Both evaluate through the unified `correlation_power` interface.
 """
 
+"""
+    AbstractCorrelationModel
+
+Abstract supertype for all cross-component correlation representations.
+"""
 abstract type AbstractCorrelationModel end
 
 """

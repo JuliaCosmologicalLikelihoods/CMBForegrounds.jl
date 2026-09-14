@@ -13,6 +13,11 @@ Provides mathematical representations for the frequency scaling of CMB foregroun
 Evaluated through `sed_weight` and composed with angular shapes in `eval_component`.
 """
 
+"""
+    AbstractSED
+
+Abstract supertype for all spectral energy distribution representations.
+"""
 abstract type AbstractSED end
 
 """
@@ -53,14 +58,14 @@ Power-law radio point-source spectral energy distribution.
   S(\\nu) = \\left(\\frac{\\nu}{\\nu_0}\\right)^{\\beta_\\mathrm{RJ}}
             \\frac{\\mathrm{rj2cmb}(\\nu)}{\\mathrm{rj2cmb}(\\nu_0)}
   ```
-  Matches [`radio_sed`](@ref) and ACT DR6 convention.
+  Matches `radio_sed` and ACT DR6 convention.
 - `:flux`: Flux-density spectral index ``\\beta_\\mathrm{flux}`` (``S_\\nu \\propto \\nu^{\\beta_\\mathrm{flux}}``,
   typically ``\\approx -0.7``). Model:
   ```math
   S(\\nu) = \\left(\\frac{\\nu}{\\nu_0}\\right)^{\\beta_\\mathrm{flux}}
             \\Big/ \\frac{(\\partial B/\\partial T)(\\nu)}{(\\partial B/\\partial T)(\\nu_0)}
   ```
-  Matches [`_radio_sed_ratio`](@ref) and Planck/HiLLiPoP/SPT convention.
+  Matches `_radio_sed_ratio` and Planck/HiLLiPoP/SPT convention.
 
 The two conventions are related by:
 ```math

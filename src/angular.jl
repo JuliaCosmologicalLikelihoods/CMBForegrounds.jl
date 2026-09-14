@@ -13,6 +13,11 @@ dependence of CMB foregrounds and empirical residuals:
 All representations evaluate through the unified `angular_power` interface.
 """
 
+"""
+    AbstractAngularModel
+
+Abstract supertype for all angular power spectrum shape representations.
+"""
 abstract type AbstractAngularModel end
 
 """

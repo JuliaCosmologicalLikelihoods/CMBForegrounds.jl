@@ -58,6 +58,11 @@ struct RawBand{T<:Real}
     bp :: Vector{T}
 end
 
+"""
+    AbstractBand
+
+Abstract supertype for all bandpass transmission representations.
+"""
 abstract type AbstractBand end
 
 """
@@ -80,10 +85,10 @@ Holds the frequency array and normalized transmission for one
 experiment/channel.
 
 Fields:
-- `nu`:       frequency grid [GHz], length n_freq
+- `nu`:       frequency grid in GHz, length n_freq
 - `norm_bp`:  normalized transmission τ̃(ν) = bp·∂B/∂T / ∫ bp·∂B/∂T dν
               (length n_freq; ignored when `monofreq` is true)
-- `nu_eff`:   effective (central) frequency [GHz]
+- `nu_eff`:   effective (central) frequency in GHz
               (used directly when `monofreq` is true)
 - `monofreq`: `true` if this is a Dirac-delta band — no integration
 
