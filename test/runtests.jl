@@ -20,6 +20,7 @@ using Random
     include("test_bandpass_type_stability_ad.jl")
     include("test_cross_type_stability_ad.jl")
     include("test_angular_dispatch.jl")
+    include("test_sed_dispatch.jl")
 
     include("test_dCl_dell_from_Dl.jl")
     include("test_ssl_response.jl")
