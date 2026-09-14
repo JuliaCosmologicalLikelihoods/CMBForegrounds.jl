@@ -203,17 +203,34 @@ end
     return integrate_tsz(band, sed.nu_0)
 end
 
+# DeltaBand generic fallback
+@inline sed_weight(sed::AbstractSED, band::DeltaBand, args...) = sed_weight(sed, band.nu_eff, args...)
+
 # ConstantSED
-@inline sed_weight(::ConstantSED, ::Union{Real, Band}) = 1.0
+@inline sed_weight(::ConstantSED, ::Union{Real, AbstractBand}) = 1.0
 @inline sed_weight(::ConstantSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
+@inline sed_weight(::ConstantSED, ::AbstractBand, chromatic_beam::ChromaticBeam) = ones(length(chromatic_beam.ells))
 
 # NoSED
-@inline sed_weight(::NoSED, ::Union{Real, Band}) = 1.0
+@inline sed_weight(::NoSED, ::Union{Real, AbstractBand}) = 1.0
 @inline sed_weight(::NoSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
+@inline sed_weight(::NoSED, ::AbstractBand, chromatic_beam::ChromaticBeam) = ones(length(chromatic_beam.ells))
+
+# Chromatic beam single-band evaluation
+@inline function sed_weight(sed::AbstractSED, band::AbstractBand, chromatic_beam::ChromaticBeam, args...)
+    fn = ν -> sed_weight(sed, ν, args...)
+    return integrate_chromatic_sed(fn, band, chromatic_beam)
+end
 
 # Collection of Bands helper
-@inline function sed_weight(sed::AbstractSED, bands::AbstractVector{<:Band}, args...)
+@inline function sed_weight(sed::AbstractSED, bands::AbstractVector{<:AbstractBand}, args...)
     return [sed_weight(sed, b, args...) for b in bands]
+end
+
+# Collection of Bands with ChromaticBeams helper
+@inline function sed_weight(sed::AbstractSED, bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam}, args...)
+    fn = ν -> sed_weight(sed, ν, args...)
+    return eval_chromatic_sed_bands(fn, bands, chromatic_beams)
 end
 
 # ------------------------------------------------------------------ #
@@ -260,10 +277,29 @@ end
 Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` for an array of bands.
 """
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        bands::AbstractVector{<:Band}, amp::Real, sed_args...; angular_args...)
+                        bands::AbstractVector{<:AbstractBand}, amp::Real, sed_args...; angular_args...)
     f = [sed_weight(sed, b, sed_args...) for b in bands]
     cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
     return factorized_cross(f, cl)
+end
+
+"""
+    eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells, bands, chromatic_beams, amp, sed_args...; angular_args...)
+
+Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` with chromatic beams.
+"""
+function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
+                        bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam},
+                        amp::Real, sed_args...; angular_args...)
+    F = eval_chromatic_sed_bands(ν -> sed_weight(sed, ν, sed_args...), bands, chromatic_beams)
+    cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    return factorized_cross(F, cl)
+end
+
+function eval_component(comp::SkyComponent, ells::AbstractVector,
+                        bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam},
+                        amp::Real, sed_args...; angular_args...)
+    return eval_component(comp.sed, comp.angular, ells, bands, chromatic_beams, amp, sed_args...; angular_args...)
 end
 
 """
@@ -272,10 +308,25 @@ end
 Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` for TE polarization cross.
 """
 function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                           bandsT::AbstractVector{<:Band}, bandsE::AbstractVector{<:Band}, amp::Real,
+                           bandsT::AbstractVector{<:AbstractBand}, bandsE::AbstractVector{<:AbstractBand}, amp::Real,
                            sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...)
     fT = [sed_weight(sedT, b, sedT_args...) for b in bandsT]
     fE = [sed_weight(sedE, b, sedE_args...) for b in bandsE]
     cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
     return factorized_cross_te(fT, fE, cl)
+end
+
+"""
+    eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::AbstractAngularModel, ells, bandsT, beamsT, bandsE, beamsE, amp, sedT_args=(), sedE_args=(); angular_args...)
+
+Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` for TE polarization cross with chromatic beams.
+"""
+function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
+                           bandsT::AbstractVector{<:AbstractBand}, beamsT::AbstractVector{<:ChromaticBeam},
+                           bandsE::AbstractVector{<:AbstractBand}, beamsE::AbstractVector{<:ChromaticBeam},
+                           amp::Real, sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...)
+    FT = eval_chromatic_sed_bands(ν -> sed_weight(sedT, ν, sedT_args...), bandsT, beamsT)
+    FE = eval_chromatic_sed_bands(ν -> sed_weight(sedE, ν, sedE_args...), bandsE, beamsE)
+    cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    return factorized_cross_te(FT, FE, cl)
 end

@@ -15,7 +15,9 @@ using CMBForegrounds: factorized_cross, factorized_cross_te, correlated_cross,
 using Mooncake: @from_chainrules, MinimalCtx
 
 @from_chainrules MinimalCtx Tuple{typeof(factorized_cross),    Vector{Float64}, Vector{Float64}}
+@from_chainrules MinimalCtx Tuple{typeof(factorized_cross),    Matrix{Float64}, Vector{Float64}}
 @from_chainrules MinimalCtx Tuple{typeof(factorized_cross_te), Vector{Float64}, Vector{Float64}, Vector{Float64}}
+@from_chainrules MinimalCtx Tuple{typeof(factorized_cross_te), Matrix{Float64}, Matrix{Float64}, Vector{Float64}}
 @from_chainrules MinimalCtx Tuple{typeof(correlated_cross),    Matrix{Float64}, Array{Float64,3}}
 @from_chainrules MinimalCtx Tuple{typeof(assemble_TT),
     Float64, Float64, Float64,

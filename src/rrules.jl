@@ -87,6 +87,73 @@ function ChainRulesCore.rrule(::typeof(factorized_cross_te),
 end
 
 # ------------------------------------------------------------------ #
+# factorized_cross(F::AbstractMatrix, cl::AbstractVector)             #
+# D[i,j,ℓ] = F[i,ℓ] · F[j,ℓ] · cl[ℓ]                                 #
+# ------------------------------------------------------------------ #
+
+function ChainRulesCore.rrule(::typeof(factorized_cross),
+                              F::AbstractMatrix, cl::AbstractVector)
+    n_freq, n_ell = size(F)
+    @assert length(cl) == n_ell
+    D = factorized_cross(F, cl)
+
+    function factorized_cross_matrix_pullback(D̄_thunked)
+        D̄ = unthunk(D̄_thunked)
+        dF̄  = similar(F)
+        dcl̄ = similar(cl)
+
+        @inbounds for ℓ in 1:n_ell
+            cl_ℓ = cl[ℓ]
+            F_ℓ  = @view F[:, ℓ]
+            D̄_ℓ  = @view D̄[:, :, ℓ]
+
+            dF̄[:, ℓ] = ((D̄_ℓ + transpose(D̄_ℓ)) * F_ℓ) .* cl_ℓ
+            dcl̄[ℓ] = dot(F_ℓ, D̄_ℓ * F_ℓ)
+        end
+
+        return NoTangent(), dF̄, dcl̄
+    end
+
+    return D, factorized_cross_matrix_pullback
+end
+
+# ------------------------------------------------------------------ #
+# factorized_cross_te(FT::AbstractMatrix, FE::AbstractMatrix, cl)     #
+# D[i,j,ℓ] = FT[i,ℓ] · FE[j,ℓ] · cl[ℓ]                               #
+# ------------------------------------------------------------------ #
+
+function ChainRulesCore.rrule(::typeof(factorized_cross_te),
+                              FT::AbstractMatrix, FE::AbstractMatrix, cl::AbstractVector)
+    n_freq, n_ell = size(FT)
+    @assert size(FE) == (n_freq, n_ell)
+    @assert length(cl) == n_ell
+    D = factorized_cross_te(FT, FE, cl)
+
+    function factorized_cross_te_matrix_pullback(D̄_thunked)
+        D̄ = unthunk(D̄_thunked)
+
+        dFT̄ = similar(FT)
+        dFĒ = similar(FE)
+        dcl̄ = similar(cl)
+
+        @inbounds for ℓ in 1:n_ell
+            cl_ℓ = cl[ℓ]
+            FT_ℓ = @view FT[:, ℓ]
+            FE_ℓ = @view FE[:, ℓ]
+            D̄_ℓ  = @view D̄[:, :, ℓ]
+
+            dFT̄[:, ℓ] = (D̄_ℓ * FE_ℓ) .* cl_ℓ
+            dFĒ[:, ℓ] = (transpose(D̄_ℓ) * FT_ℓ) .* cl_ℓ
+            dcl̄[ℓ] = dot(FT_ℓ, D̄_ℓ * FE_ℓ)
+        end
+
+        return NoTangent(), dFT̄, dFĒ, dcl̄
+    end
+
+    return D, factorized_cross_te_matrix_pullback
+end
+
+# ------------------------------------------------------------------ #
 # correlated_cross(f, cl):  D[:,:,ℓ] = f' cl[:,:,ℓ] f                   #
 # ------------------------------------------------------------------ #
 # Forward (per ℓ):  D_ℓ = (f') · C_ℓ · f

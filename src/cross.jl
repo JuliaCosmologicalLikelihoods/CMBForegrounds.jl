@@ -35,6 +35,29 @@ function factorized_cross(f::AbstractVector, cl::AbstractVector)
     return reshape(outer, n_freq, n_freq, 1) .* reshape(cl, 1, 1, n_ell)
 end
 
+"""
+    factorized_cross(F::AbstractMatrix, cl::AbstractVector)
+
+Chromatic factorized cross-spectrum: outer product of frequency- and ℓ-dependent
+weights with an ℓ-template:
+
+    D[i, j, ℓ] = F[i, ℓ] · F[j, ℓ] · Cl[ℓ]
+
+Arguments:
+- `F`:  chromatic SED weights, shape (n_freq, n_ell)
+- `cl`: D_ℓ template, shape (n_ell,)
+
+Returns array of shape (n_freq, n_freq, n_ell).
+"""
+function factorized_cross(F::AbstractMatrix, cl::AbstractVector)
+    n_freq, n_ell = size(F)
+    @assert length(cl) == n_ell "factorized_cross: cl length must match F second dimension (n_ell)"
+    F_i = reshape(F, n_freq, 1, n_ell)
+    F_j = reshape(F, 1, n_freq, n_ell)
+    cl_3d = reshape(cl, 1, 1, n_ell)
+    return @. F_i * F_j * cl_3d
+end
+
 # ------------------------------------------------------------------ #
 # TE factorized cross-spectrum                                         #
 # D[i,j,ℓ] = fT[i] · fE[j] · Cl[ℓ]                                   #
@@ -60,6 +83,30 @@ function factorized_cross_te(fT::AbstractVector, fE::AbstractVector, cl::Abstrac
     n_ell  = length(cl)
     outer  = fT .* fE'                                     # (n_freq, n_freq)
     return reshape(outer, n_freq, n_freq, 1) .* reshape(cl, 1, 1, n_ell)
+end
+
+"""
+    factorized_cross_te(FT::AbstractMatrix, FE::AbstractMatrix, cl::AbstractVector)
+
+Chromatic TE cross-spectrum with separate T and E frequency- and ℓ-dependent weights:
+
+    D[i, j, ℓ] = FT[i, ℓ] · FE[j, ℓ] · Cl[ℓ]
+
+Arguments:
+- `FT`: temperature chromatic SED weights, shape (n_freq, n_ell)
+- `FE`: E-mode chromatic SED weights, shape (n_freq, n_ell)
+- `cl`: D_ℓ template, shape (n_ell,)
+
+Returns array of shape (n_freq, n_freq, n_ell).
+"""
+function factorized_cross_te(FT::AbstractMatrix, FE::AbstractMatrix, cl::AbstractVector)
+    n_freq, n_ell = size(FT)
+    @assert size(FE) == (n_freq, n_ell) "factorized_cross_te: FE shape must match FT shape"
+    @assert length(cl) == n_ell "factorized_cross_te: cl length must match FT second dimension (n_ell)"
+    FT_i = reshape(FT, n_freq, 1, n_ell)
+    FE_j = reshape(FE, 1, n_freq, n_ell)
+    cl_3d = reshape(cl, 1, 1, n_ell)
+    return @. FT_i * FE_j * cl_3d
 end
 
 # ------------------------------------------------------------------ #
