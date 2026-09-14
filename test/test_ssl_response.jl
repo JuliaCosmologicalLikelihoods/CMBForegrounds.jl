@@ -90,9 +90,9 @@ where κ is the convergence field value and dCℓ/dℓ is computed from Dℓ.
         # Test that the function properly uses dCl_dell_from_Dl
         ℓs = [100, 200, 300, 400]
 
-        # Use a simple power law: Cℓ = A * ℓ^(-2), so Dℓ = A * ℓ(ℓ+1)/(2π) * ℓ^(-2) = A * (ℓ+1)/(2π)
+        # Use Cℓ = A * ℓ^(-2), converted exactly to Dℓ.
         A = 1000.0
-        Dℓ = @. A * (ℓs + 1) / (2π)
+        Dℓ = @. A * (ℓs + 1) / (2π * ℓs)
         κ = 0.01
 
         Δ_Dℓ = CMBForegrounds.ssl_response(ℓs, κ, Dℓ)

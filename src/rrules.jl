@@ -99,8 +99,9 @@ function ChainRulesCore.rrule(::typeof(factorized_cross),
 
     function factorized_cross_matrix_pullback(D̄_thunked)
         D̄ = unthunk(D̄_thunked)
-        dF̄  = similar(F)
-        dcl̄ = similar(cl)
+        T = promote_type(eltype(D̄), eltype(F), eltype(cl))
+        dF̄  = similar(F, T)
+        dcl̄ = similar(cl, T)
 
         @inbounds for ℓ in 1:n_ell
             cl_ℓ = cl[ℓ]
@@ -132,9 +133,10 @@ function ChainRulesCore.rrule(::typeof(factorized_cross_te),
     function factorized_cross_te_matrix_pullback(D̄_thunked)
         D̄ = unthunk(D̄_thunked)
 
-        dFT̄ = similar(FT)
-        dFĒ = similar(FE)
-        dcl̄ = similar(cl)
+        T = promote_type(eltype(D̄), eltype(FT), eltype(FE), eltype(cl))
+        dFT̄ = similar(FT, T)
+        dFĒ = similar(FE, T)
+        dcl̄ = similar(cl, T)
 
         @inbounds for ℓ in 1:n_ell
             cl_ℓ = cl[ℓ]

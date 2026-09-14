@@ -46,7 +46,7 @@ The Planck function ratio is:
 """
 function Bnu_ratio(ν, ν0, T)
     r, x, x0 = dimensionless_freq_vars(ν, ν0, T)
-    return r^3 * expm1(x0) / expm1(x)
+    return r * r * r * expm1(x0) / expm1(x)
 end
 
 """
@@ -76,7 +76,8 @@ function dBdT_ratio(ν, ν0, T)
     s0 = sinh(x0 / 2)
     s = sinh(x / 2)
 
-    return r^4 * (s0 * s0) / (s * s)
+    r2 = r * r
+    return r2 * r2 * (s0 * s0) / (s * s)
 end
 
 """
@@ -457,6 +458,13 @@ function dCl_dell_from_Dl(ℓs::AbstractVector, Dℓ::AbstractVector)
 
     dCℓ = similar(Cℓ)
 
+    if n == 2
+        slope = (Cℓ[2] - Cℓ[1]) / (ℓs[2] - ℓs[1])
+        dCℓ[1] = slope
+        dCℓ[2] = slope
+        return dCℓ
+    end
+
     @inbounds begin
         # Central differences for interior points
         for i in 2:n-1
@@ -621,7 +629,7 @@ where ``\\sigma = \\mathrm{FWHM} / \\sqrt{8 \\ln 2}`` is the beam standard devia
 """
 function gaussian_beam_window(fwhm_arcmin, ells::AbstractVector)
     σ = fwhm_arcmin_to_sigma_rad(fwhm_arcmin)
-    return @. exp(-0.5 * ells * (ells + 1) * σ^2)
+    return @. exp(-0.5 * ells * (ells + 1) * σ * σ)
 end
 
 # ============================================================================
@@ -842,14 +850,18 @@ end
 #  these definitions serve SPT, Hillipop, and other consumers.)       #
 # ------------------------------------------------------------------ #
 
-"""
-    x_cmb(nu)
-
-Dimensionless frequency ratio x = hν/(k_B T_CMB), with ν in GHz.
-"""
 # Precompute h/(k_B T_CMB) × 1e9 [K/GHz] to avoid runtime divide.
 const _H_OVER_KT = Ghz_Kelvin / T_CMB
+
+"""
+    x_cmb(nu)
+    x_cmb(nu, T)
+
+Dimensionless frequency ratio ``x = hν/(k_B T)``, with `ν` in GHz.
+The one-argument method uses [`T_CMB`](@ref).
+"""
 @inline x_cmb(nu) = _H_OVER_KT * nu
+@inline x_cmb(nu, T) = Ghz_Kelvin * nu / T
 
 """
     rj2cmb(nu)
@@ -861,7 +873,14 @@ Used to convert flux-density SEDs (defined in RJ units) to K_CMB.
 """
 function rj2cmb(nu::T) where T<:Real
     x = x_cmb(nu)
-    return (expm1(x) / x)^2 / exp(x)
+    ratio = expm1(x) / x
+    return ratio * ratio / exp(x)
+end
+
+function rj2cmb(nu::Real, T_CMB::Real)
+    x = x_cmb(nu, T_CMB)
+    ratio = expm1(x) / x
+    return ratio * ratio / exp(x)
 end
 
 """
@@ -877,7 +896,8 @@ Mirrors `_cmb2bb` in fgspectra/frequency.py and LAT_MFLike/foreground.py.
 """
 function cmb2bb(nu::T) where T<:Real
     x = x_cmb(nu)
-    return exp(x) * (nu * x / expm1(x))^2
+    ratio = nu * x / expm1(x)
+    return exp(x) * ratio * ratio
 end
 
 function cmb2bb(nu::AbstractVector)
@@ -895,6 +915,11 @@ function tsz_f(nu::T) where T<:Real
     return x / tanh(x / 2) - 4
 end
 
+function tsz_f(nu::Real, T_CMB::Real)
+    x = x_cmb(nu, T_CMB)
+    return x / tanh(x / 2) - 4
+end
+
 """
     tsz_sed(nu, nu_0)
 
@@ -903,6 +928,8 @@ Returns f_tSZ(ν) / f_tSZ(ν₀).
 """
 tsz_sed(nu::Real,           nu_0::Real) = tsz_f(nu)   / tsz_f(nu_0)
 tsz_sed(nu::AbstractVector, nu_0::Real) = tsz_f.(nu) ./ tsz_f(nu_0)
+tsz_sed(nu::Real, nu_0::Real, T_CMB::Real) = tsz_f(nu, T_CMB) / tsz_f(nu_0, T_CMB)
+tsz_sed(nu::AbstractVector, nu_0::Real, T_CMB::Real) = tsz_f.(nu, T_CMB) ./ tsz_f(nu_0, T_CMB)
 
 """
     mbb_sed(nu, nu_0, beta, temp)
@@ -937,6 +964,10 @@ Used for unresolved radio sources. `beta` is typically in [-3.5, -1.5].
 """
 radio_sed(nu::Real,           nu_0::Real, beta::Real) = (nu/nu_0)^beta * rj2cmb(nu) / rj2cmb(nu_0)
 radio_sed(nu::AbstractVector, nu_0::Real, beta::Real) = (nu ./ nu_0) .^ beta .* rj2cmb.(nu) ./ rj2cmb(nu_0)
+radio_sed(nu::Real, nu_0::Real, beta::Real, T_CMB::Real) =
+    (nu / nu_0)^beta * rj2cmb(nu, T_CMB) / rj2cmb(nu_0, T_CMB)
+radio_sed(nu::AbstractVector, nu_0::Real, beta::Real, T_CMB::Real) =
+    (nu ./ nu_0) .^ beta .* rj2cmb.(nu, T_CMB) ./ rj2cmb(nu_0, T_CMB)
 
 """
     constant_sed(nu)

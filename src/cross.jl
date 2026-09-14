@@ -166,7 +166,6 @@ function build_szxcib_cl(cl_tsz::AbstractVector, cl_cibc::AbstractVector,
                           cl_cross::AbstractVector)
     n_ell = length(cl_tsz)
     # Pure construction — no mutation — compatible with ForwardDiff and Mooncake
-    zeros_n = zero(cl_tsz)
     layer11 = reshape(cl_tsz,  1, 1, n_ell)
     layer12 = reshape(cl_cross, 1, 1, n_ell)
     layer21 = reshape(cl_cross, 1, 1, n_ell)

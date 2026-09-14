@@ -8,7 +8,8 @@ Instrumental operations and systematic effects:
 4. Beam modes: linear and quadratic beam eigenmode perturbations.
 5. SSL & aberration: Super-Sample Lensing and relativistic aberration response composition.
 
-All functions are pure, non-mutating, and differentiable via ForwardDiff and Mooncake.
+The operations are non-mutating. Differentiability is tested for the parameterized
+paths used by the public component and instrument interfaces.
 """
 
 # ------------------------------------------------------------------ #
@@ -166,13 +167,13 @@ where `gamma_i` is the leakage factor/curve for channel `i`.
 
 Compute the full map-response algebra leakage contribution to EE cross-spectrum:
 ```math
-\\Delta C_\\ell^{EE}(i, j) = \\gamma_i(\\ell) C_\\ell^{TE}(j, i) + \\gamma_j(\\ell) C_\\ell^{TE}(i, j) + \\gamma_i(\\ell) \\gamma_j(\\ell) C_\\ell^{TT}(i, j)
+\\Delta C_\\ell^{EE}(i, j) = \\gamma_i(\\ell) C_\\ell^{TE}(i, j) + \\gamma_j(\\ell) C_\\ell^{TE}(j, i) + \\gamma_i(\\ell) \\gamma_j(\\ell) C_\\ell^{TT}(i, j)
 ```
 Retains both linear cross-terms and the quadratic TT term.
 """
 function ee_leakage(C_TT::AbstractVector, C_TE_ij::AbstractVector, C_TE_ji::AbstractVector,
                     gamma_i::Union{Real, AbstractVector}, gamma_j::Union{Real, AbstractVector})
-    return @. gamma_i * C_TE_ji + gamma_j * C_TE_ij + (gamma_i * gamma_j) * C_TT
+    return @. gamma_i * C_TE_ij + gamma_j * C_TE_ji + (gamma_i * gamma_j) * C_TT
 end
 
 """
@@ -207,7 +208,7 @@ end
 
 Apply map-level leakage across 3D tensors:
 ```math
-D_\\ell^{EE,\\mathrm{obs}}[i, j] = D_\\ell^{EE}[i, j] + \\gamma_i D_\\ell^{TE}[j, i] + \\gamma_j D_\\ell^{TE}[i, j] + \\gamma_i \\gamma_j D_\\ell^{TT}[i, j]
+D_\\ell^{EE,\\mathrm{obs}}[i, j] = D_\\ell^{EE}[i, j] + \\gamma_i D_\\ell^{TE}[i, j] + \\gamma_j D_\\ell^{TE}[j, i] + \\gamma_i \\gamma_j D_\\ell^{TT}[i, j]
 ```
 """
 function apply_ee_leakage(D_EE::AbstractArray{<:Any,3}, D_TE::AbstractArray{<:Any,3}, D_TT::AbstractArray{<:Any,3}, gammas::AbstractVector)
@@ -216,7 +217,7 @@ function apply_ee_leakage(D_EE::AbstractArray{<:Any,3}, D_TE::AbstractArray{<:An
     G_i = reshape(gammas, n_freq, 1, 1)
     G_j = reshape(gammas, 1, n_freq, 1)
     D_ET = permutedims(D_TE, (2, 1, 3))
-    return @. D_EE + G_i * D_ET + G_j * D_TE + (G_i * G_j) * D_TT
+    return @. D_EE + G_i * D_TE + G_j * D_ET + (G_i * G_j) * D_TT
 end
 
 # ------------------------------------------------------------------ #
@@ -229,9 +230,9 @@ end
 Compute the beam perturbation to power spectrum `cl` given beam eigenmodes `modes` (shape `(n_ell, n_modes)`)
 and mode amplitudes `coeffs` (length `n_modes`).
 
-- If `linearized` is `true`:
+- If `linearized` is `true`, return the first-order corrected spectrum:
   ```math
-  \\Delta C_\\ell = 2 \\cdot C_\\ell \\sum_k \\beta_k \\phi_k(\\ell)
+  C_\\ell^\\mathrm{perturbed} = C_\\ell \\left(1 + 2\\sum_k \\beta_k \\phi_k(\\ell)\\right)
   ```
 - If `linearized` is `false`:
   ```math
@@ -245,9 +246,9 @@ function beam_eigenmode_response(cl::AbstractVector, modes::AbstractMatrix, coef
 
     delta_b = modes * coeffs
     if linearized
-        return @. 2 * cl * delta_b
+        return @. cl * (1 + 2 * delta_b)
     else
-        return @. cl * (1 + delta_b)^2
+        return @. cl * (1 + delta_b) * (1 + delta_b)
     end
 end
 

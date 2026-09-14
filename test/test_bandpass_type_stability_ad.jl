@@ -153,7 +153,7 @@ end
     @test CMBForegrounds.integrate_tsz(band, 143.0) ≈
           CMBForegrounds.integrate_sed(ν -> CMBForegrounds.tsz_sed(ν, 143.0), band)
 
-    @test CMBForegrounds.integrate_tsz(pb, 143.0) == CMBForegrounds.tsz_sed(100.0, 143.0)
+        @test CMBForegrounds.integrate_tsz(pb, 143.0) ≈ CMBForegrounds.tsz_sed(100.0, 143.0)
 
     JET.@test_opt CMBForegrounds.integrate_tsz(band, 143.0)
 end

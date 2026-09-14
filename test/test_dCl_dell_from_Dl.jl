@@ -144,6 +144,9 @@ central differences for interior points and boundary extrapolation for endpoints
         Dℓ_2 = [100.0, 200.0]
         dCℓ_dℓ_2 = CMBForegrounds.dCl_dell_from_Dl(ℓs_2, Dℓ_2)
         @test length(dCℓ_dℓ_2) == 2
+        Cℓ_2 = @. Dℓ_2 * 2π / (ℓs_2 * (ℓs_2 + 1))
+        secant = (Cℓ_2[2] - Cℓ_2[1]) / (ℓs_2[2] - ℓs_2[1])
+        @test dCℓ_dℓ_2 == fill(secant, 2)
         @test dCℓ_dℓ_2[1] == dCℓ_dℓ_2[2]  # Both should be equal (boundary condition)
     end
 
@@ -365,6 +368,6 @@ central differences for interior points and boundary extrapolation for endpoints
 
         # Should change sign around the peak
         # (detailed behavior depends on sampling, just check it's reasonable)
-        @test any(dCℓ_dℓ_peak .> 0) || any(dCℓ_dℓ_peak .< 0)  # Not all same sign
+        @test any(dCℓ_dℓ_peak .> 0) && any(dCℓ_dℓ_peak .< 0)
     end
 end

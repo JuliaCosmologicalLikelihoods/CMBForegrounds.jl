@@ -4,137 +4,120 @@
 |:--------:|:----------------:|:----------------:|:----------------:|
 | [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliacosmologicallikelihoods.github.io/CMBForegrounds.jl/dev) [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://juliacosmologicallikelihoods.github.io/CMBForegrounds.jl/stable) | [![Build status (Github Actions)](https://github.com/JuliaCosmologicalLikelihoods/CMBForegrounds.jl/workflows/CI/badge.svg)](https://github.com/JuliaCosmologicalLikelihoods/CMBForegrounds.jl/actions) | [![codecov](https://codecov.io/gh/JuliaCosmologicalLikelihoods/CMBForegrounds.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/JuliaCosmologicalLikelihoods/CMBForegrounds.jl) | [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle) [![ColPrac: Contributor's Guide on Collaborative Practices for Community Packages](https://img.shields.io/badge/ColPrac-Contributor's%20Guide-blueviolet)](https://github.com/SciML/ColPrac) |
 
-`CMBForegrounds.jl` is a high-performance, differentiable Julia library for modeling astrophysical foregrounds, secondary anisotropies, and instrumental systematics in Cosmic Microwave Background (CMB) power spectra.
+`CMBForegrounds.jl` provides differentiable, survey-agnostic building blocks for CMB foreground power spectra and selected instrumental responses. Survey packages retain ownership of templates, passbands, parameter names and priors, data ordering, binning, and covariances.
 
-The package is **survey-agnostic by design**: rather than encoding survey names, it dispatches on foundational **mathematical representations** (angular shapes, spectral energy distributions, cross-correlations, bandpasses, and instrumental transformations). Empirical templates, measured bandpasses, beam transfer matrices, and likelihood covariances remain external user/likelihood assets.
+The library dispatches on mathematical representations rather than survey names:
 
----
+- angular shapes: power laws, exact Poisson spectra, templates, and tilted templates;
+- SEDs: modified blackbody, radio, thermal SZ, and unit response;
+- correlations: explicit cross-templates and geometric-mean prescriptions;
+- passbands: effective frequencies and tabulated responses, including chromatic beams;
+- instrumental operations: calibration, additive templates, T-to-E leakage, beam modes, super-sample lensing, and aberration.
 
-## Key Features
+Existing low-level foreground functions and fused `assemble_TT`, `assemble_TE`, and `assemble_EE` kernels remain available.
 
-- **Survey-Agnostic Multiple Dispatch**:
-  - **Angular Shapes**: `PowerLawShape`, `PoissonShape`, `TemplateShape`, `TiltedTemplateShape`.
-  - **Spectral Energy Distributions (SEDs)**: `ModifiedBlackbodySED`, `RadioSED`, `ThermalSZSED`, `ConstantSED`, `NoSED`.
-  - **Component Composition**: `SkyComponent(shape, sed)` evaluated across effective frequencies or discretized bands.
-  - **Cross-Correlations**: `TemplateCorrelation`, `GeometricMeanCorrelation`.
-  - **Bandpass & Chromatic Beams**: `DeltaBand`, `Band`, `ChromaticBeam`, `integrate_chromatic_sed`, `eval_chromatic_sed_bands`.
-  - **Instrumental Operations**: Map & spectrum calibrations (`:forward` and `:inverse`), additive templates, polarization leakage, beam eigenmodes, super-sample lensing (SSL), and relativistic aberration.
-- **Ultra-High Performance**:
-  - Zero-allocation inner loops and optimized matrix cross kernels (`factorized_cross`, `factorized_cross_te`).
-  - Pre-allocated multi-channel fused assemblers (`assemble_TT`, `assemble_EE`, `assemble_TE`).
-- **End-to-End Automatic Differentiation**:
-  - Verified with **ForwardDiff**, **Mooncake**, and **Zygote** via `DifferentiationInterface`.
-  - Custom `ChainRulesCore` rrules and dedicated Mooncake tape registrations in `CMBForegroundsMooncakeExt`.
-
----
-
-## Quick Start
-
-### 1. Sky Components (Angular Shape + SED)
+## Example
 
 ```julia
 using CMBForegrounds
 
-# Define angular multipoles
-ell = 2:3000
+ells = collect(30:3000)
 
-# 1. Thermal dust: power-law angular spectrum with modified blackbody SED
-dust_shape = PowerLawShape(10.0, -0.6; ell_0=3000.0)
-dust_sed = ModifiedBlackbodySED(1.53, 19.6; nu_0=353.0)
-dust = SkyComponent(dust_shape, dust_sed)
+# D_ell = A (ell/ell_0)^alpha with a modified-blackbody SED.
+dust = SkyComponent(
+    ModifiedBlackbodySED(150.0, 19.6),
+    PowerLawShape(500.0),
+)
+D_dust = eval_component(dust, ells, 90.0, 150.0, 8.0, 1.5; alpha=-0.6)
 
-# Evaluate cross-frequency power spectrum between 150 GHz and 220 GHz
-cl_dust = eval_component(dust, 150.0, 220.0, ell)
+# Constant C_ell point sources: exact ell(ell+1) scaling in D_ell.
+radio = SkyComponent(
+    RadioSED(150.0; convention=:flux),
+    PoissonShape(3000.0),
+)
+D_radio = eval_component(radio, ells, 90.0, 150.0, 3.0, -0.7)
 
-# 2. Point sources: Poisson angular shape with power-law radio SED
-radio_shape = PoissonShape(5.0; ell_0=3000.0)
-radio_sed = RadioSED(-0.7; nu_0=150.0)
-radio = SkyComponent(radio_shape, radio_sed)
-cl_radio = eval_component(radio, 150.0, 150.0, ell)
-
-# 3. Secondary anisotropy: Thermal Sunyaev-Zel'dovich with tabulated template
-tsz_template = rand(3001) # e.g., from Shaw et al. or Battaglia et al.
-tsz_shape = TemplateShape(tsz_template; ell_0=3000.0)
-tsz_sed = ThermalSZSED(; nu_0=143.0)
-tsz = SkyComponent(tsz_shape, tsz_sed)
-cl_tsz = eval_component(tsz, 150.0, 150.0, ell)
+# A dense template whose first sample corresponds to ell=0.
+template = ones(3001)
+tsz = SkyComponent(
+    ThermalSZSED(143.0),
+    TemplateShape(template; ell_0=3000, ell_min=0),
+)
+D_tsz = eval_component(tsz, ells, 90.0, 150.0, 4.0)
 ```
 
-### 2. Cross-Correlations
+`PowerLawShape` and `PoissonShape` store the pivot only. Amplitudes and fitted slopes remain numerical arguments, so likelihood code controls parameter sharing without an additional parameter-management layer.
 
-Correlate components (e.g. tSZ and CIB) using either template-based or geometric-mean representations:
+## Passbands and chromatic beams
 
 ```julia
-# Template cross-correlation
-tsz_cib_corr = TemplateCorrelation(tsz_cib_template; ell_0=3000.0, xi=-0.1)
-cl_cross = correlation_power(tsz_cib_corr, ell)
+nu = collect(range(130.0, 170.0; length=41))
+transmission = @. exp(-0.5 * ((nu - 150.0) / 10.0)^2)
+band = make_band(nu, transmission)
 
-# Geometric-mean cross-correlation: xi * sqrt(|C1 * C2|)
-geom_corr = GeometricMeanCorrelation(dust_shape, radio_shape; xi=0.2)
-cl_geom = correlation_power(geom_corr, ell)
+beam_matrix = [1 + 0.01 * (l / 3000) * (n - 150) / 20
+               for l in ells, n in nu]
+beam = ChromaticBeam(ells, beam_matrix)
+
+sed = ModifiedBlackbodySED(150.0, 19.6)
+weight_ell = sed_weight(sed, band, beam, 1.5)
 ```
 
-### 3. Bandpasses and Chromatic Beams
+`RawBand` and `shift_and_normalize` provide differentiable passband shifts. The chromatic beam is supplied as the already-evaluated matrix `beam[ell_index, nu_index]`; this package does not prescribe a survey beam model.
 
-Integrate SEDs across top-hat or measured transmission curves with optional chromatic beams:
+## Correlated components
 
 ```julia
-nus = range(130.0, 170.0, length=40)
-weights = exp.(-0.5 .* ((nus .- 150.0) ./ 10.0).^2)
-band150 = Band(nus, weights)
+cross_shape = TemplateCorrelation(TemplateShape(template; ell_0=3000, ell_min=0))
+f_tsz_90  = sed_weight(ThermalSZSED(143.0), 90.0)
+f_tsz_150 = sed_weight(ThermalSZSED(143.0), 150.0)
+f_cib_90  = sed_weight(ModifiedBlackbodySED(150.0, 25.0), 90.0, 1.75)
+f_cib_150 = sed_weight(ModifiedBlackbodySED(150.0, 25.0), 150.0, 1.75)
 
-# Chromatic beam: frequency-dependent FWHM
-beam150 = ChromaticBeam(nus, 1.4 .* (150.0 ./ nus))
-
-# Integrated SED weight for modified blackbody
-w150 = integrate_chromatic_sed(dust_sed, band150; beam=beam150)
+D_cross = correlation_power(
+    cross_shape, ells, 0.1, 4.0, 6.0,
+    f_tsz_90, f_tsz_150, f_cib_90, f_cib_150,
+)
 ```
 
-### 4. Composable Instrumental Operations
+`GeometricMeanCorrelation()` evaluates the alternative prescription from supplied auto-spectra or `SkyComponent`s. It is a distinct model and does not preserve the tSZ frequency sign across its null.
 
-Apply calibration, polarization leakage, beam perturbations, or aberration to spectra:
+## Instrumental operations
 
 ```julia
-# Map calibrations (forward: c1*c2; inverse: 1/(y1*y2))
-cl_cal = apply_calibration(cl_dust, 1.01, 0.99; convention=:forward)
+D_calibrated = apply_calibration(D_dust, 1.01, 0.99; convention=:inverse)
+D_with_template = add_template(D_calibrated, systematic_template, amplitude)
 
-# Additive systematic templates (fixed or sampled amplitude)
-cl_tot = add_template(cl_cal, template_array, 0.05)
+delta_TE = te_leakage(D_TT, gamma_E)
+delta_EE = ee_leakage(D_TT, D_TE_ij, D_TE_ji, gamma_i, gamma_j)
 
-# Polarization leakage from map-level response algebra
-cl_te_obs = apply_te_leakage(cl_tt, cl_te, 0.005) # eta_leakage
-cl_ee_obs = apply_ee_leakage(cl_tt, cl_te, cl_ee, 0.005)
-
-# Relativistic aberration and super-sample lensing
-cl_aberr = apply_aberration(cl_tot, dcl_dell, 0.00123)
-cl_ssl   = apply_ssl(cl_tot, dcl_dell, 0.0005)
+D_ssl = apply_ssl(ells, kappa, D_cmb)
+D_aberrated = apply_aberration(ells, aberration_coefficient, D_cmb)
 ```
 
----
+Response provenance remains the caller's responsibility. Do not apply a correction twice when released spectra or covariances already include it.
 
-## Conventions & Physics Reference
+## Conventions
 
-| Quantity | Representation | Default Pivot | Notes |
-|:---|:---|:---|:---|
-| **Power-law slope** | `PowerLawShape(A, α)` | $\ell_0 = 3000$ | $D_\ell = A (\ell / \ell_0)^\alpha$. Note: legacy `dust_tt_power_law` took $\alpha + 2$. |
-| **Poisson noise** | `PoissonShape(A)` | $\ell_0 = 3000$ | $D_\ell = A (\ell / \ell_0)^2$, equivalent to constant $C_\ell = A \times \frac{2\pi}{\ell_0^2}$. |
-| **Radio index** | `RadioSED(α)` | $\nu_0 = 150\,\mathrm{GHz}$ | Rayleigh-Jeans temperature index $\alpha = \alpha_{\rm flux} - 2$. |
-| **Modified Blackbody** | `ModifiedBlackbodySED(β, T)` | $\nu_0 = 353\,\mathrm{GHz}$ | Ratio of $\nu^\beta B_\nu(T)$ converted to thermodynamic $\Delta T_{\rm CMB}$. |
-| **tSZ non-rel SED** | `ThermalSZSED()` | $\nu_0 = 143\,\mathrm{GHz}$ | $g(\nu) = x\coth(x/2) - 4 < 0$ for $\nu < 217\,\mathrm{GHz}$ (decrement). |
-| **Calibration** | `apply_calibration` | — | `:forward` computes $c_1 c_2 C_\ell$; `:inverse` computes $\frac{1}{y_1 y_2} C_\ell$ (Plik convention). |
-| **$C_\ell \leftrightarrow D_\ell$** | `dCl_dell_from_Dl` | — | Exact conversion uses $\ell(\ell+1) / 2\pi$, not $\ell^2 / 2\pi$. |
+- Angular evaluators return `D_ell`; `PowerLawShape` therefore takes the `D_ell` exponent directly.
+- `PoissonShape` uses exact `ell(ell+1)` scaling, while legacy `shot_noise_power` intentionally implements an `ell^2` approximation.
+- `TemplateShape` represents a dense integer multipole grid beginning at `ell_min`. `ell_0=nothing` means the input is already normalized.
+- `RadioSED(...; convention=:flux)` takes a flux-density index, while `convention=:rj` takes an RJ-temperature index. They obey `beta_rj = beta_flux - 2`.
+- `:forward` calibration multiplies by gains; `:inverse` divides by them.
+- Fixed versus sampled parameters and all priors belong to the likelihood.
 
----
+## Verification scope
 
-## Contributing
+Unit tests cover analytic identities, legacy-kernel parity, automatic-differentiation agreement, and synthetic compositions resembling common Planck/ACT/SPT modelling choices. They are **not** a substitute for likelihood-level comparisons against released survey model vectors. Such release-specific parity tests belong in the corresponding likelihood package together with its numerical assets.
 
-Contributions are welcome! Please ensure that new features:
-1. Maintain survey-agnostic design (dispatching on mathematics, not survey names).
-2. Remain type-stable and non-allocating on inner kernels.
-3. Include unit tests and AD verification with ForwardDiff and Mooncake.
+## Development
 
----
+```julia
+julia --project=. -e 'using Pkg; Pkg.test()'
+```
+
+AD tests use `DifferentiationInterface` with ForwardDiff, Zygote, and Mooncake where supported.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT

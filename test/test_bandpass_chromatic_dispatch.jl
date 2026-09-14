@@ -8,7 +8,7 @@ using DifferentiationInterface
 const DI = DifferentiationInterface
 using JET
 
-@testset "Phase 4 — Chromatic Bandpass and Response" begin
+@testset "Chromatic bandpass and response" begin
     # Setup test frequencies and bands
     nu = collect(range(130.0, 170.0, length=41))
     bp1 = exp.(-0.5 .* ((nu .- 145.0) ./ 8.0).^2)
@@ -98,6 +98,24 @@ using JET
         end
         g_fd = DI.gradient(f_shift, AutoForwardDiff(), [0.0])
         @test isfinite(g_fd[1])
+
+        # A parameter may affect any channel, not only the first one.
+        mixed_loss = s -> begin
+            shifted = shift_and_normalize(raw1, s[1])
+            sum(eval_chromatic_sed_bands(ν -> (ν / 150)^2,
+                                         [band1, shifted],
+                                         [chrom_beam1, chrom_beam1]))
+        end
+        mixed_grad = DI.gradient(mixed_loss, AutoForwardDiff(), [0.0])
+        @test all(isfinite, mixed_grad)
+        mixed_grad_zg = DI.gradient(mixed_loss, AutoZygote(), [0.0])
+        mixed_grad_mc = DI.gradient(mixed_loss, AutoMooncake(config=nothing), [0.0])
+        @test mixed_grad ≈ mixed_grad_zg rtol=1e-8
+        @test mixed_grad ≈ mixed_grad_mc rtol=1e-6
+
+        bad_grid = ChromaticBeam(ells .+ 1, chrom_beam2.beam)
+        @test_throws ArgumentError eval_chromatic_sed_bands(sed_fn, bands,
+                                                             [chrom_beam1, bad_grid])
     end
 
     @testset "5. Matrix factorized_cross and factorized_cross_te" begin
@@ -140,22 +158,33 @@ using JET
         F = [1.0 + 0.1 * i + 0.01 * (l/1000.0) for i in 1:2, l in ells]
 
         # ForwardDiff vs Mooncake on factorized_cross
-        loss_F = F_mat -> sum(factorized_cross(F_mat, cl))
-        loss_cl = cl_vec -> sum(factorized_cross(F, cl_vec))
+        W = [(-1.0)^i * (i + 2j + 3l) for i in 1:2, j in 1:2, l in 1:n_ell]
+        loss_F = F_mat -> sum(W .* factorized_cross(F_mat, cl))
+        loss_cl = cl_vec -> sum(W .* factorized_cross(F, cl_vec))
 
-        g_F_fd = ForwardDiff.gradient(loss_F, F)
+        g_F_fd = DI.gradient(loss_F, AutoForwardDiff(), F)
         g_F_mc = DI.gradient(loss_F, AutoMooncake(config=nothing), F)
         @test isapprox(g_F_fd, g_F_mc; rtol=1e-6)
 
-        g_cl_fd = ForwardDiff.gradient(loss_cl, cl)
+        g_cl_fd = DI.gradient(loss_cl, AutoForwardDiff(), cl)
         g_cl_mc = DI.gradient(loss_cl, AutoMooncake(config=nothing), cl)
         @test isapprox(g_cl_fd, g_cl_mc; rtol=1e-6)
 
         # TE loss
-        loss_te_FT = FT -> sum(factorized_cross_te(FT, F, cl))
-        g_te_fd = ForwardDiff.gradient(loss_te_FT, F)
+        FE = 2.0 .* F .+ 0.3
+        loss_te_FT = FT -> sum(W .* factorized_cross_te(FT, FE, cl))
+        loss_te_FE = x -> sum(W .* factorized_cross_te(F, x, cl))
+        g_te_fd = DI.gradient(loss_te_FT, AutoForwardDiff(), F)
         g_te_mc = DI.gradient(loss_te_FT, AutoMooncake(config=nothing), F)
         @test isapprox(g_te_fd, g_te_mc; rtol=1e-6)
+        @test DI.gradient(loss_te_FE, AutoForwardDiff(), FE) ≈
+              DI.gradient(loss_te_FE, AutoMooncake(config=nothing), FE) rtol=1e-6
+
+        # Fixed integer templates must not force integer cotangents.
+        int_cl = collect(1:n_ell)
+        int_loss = x -> sum(W .* factorized_cross(x, int_cl))
+        @test DI.gradient(int_loss, AutoForwardDiff(), F) ≈
+              DI.gradient(int_loss, AutoZygote(), F) rtol=1e-10
     end
 
     @testset "7. Type stability (JET)" begin

@@ -94,7 +94,7 @@ using CMBForegrounds
         
         # Use a simple power law: Cℓ = A * ℓ^(-2)
         A = 1000.0
-        Dℓ = @. A * (ℓs + 1) / (2π)  # Approximate Dℓ for this Cℓ
+        Dℓ = @. A * (ℓs + 1) / (2π * ℓs)
         ab_coeff = 1e-3
         
         Δ_Dℓ = CMBForegrounds.aberration_response(ℓs, ab_coeff, Dℓ)
@@ -336,22 +336,20 @@ using CMBForegrounds
         ℓs = [100, 200, 400, 800]  # Each double the previous
         
         # Use constant Cℓ so dCℓ/dℓ has predictable behavior
-        # For constant Dℓ, Cℓ ∝ 1/[ℓ(ℓ+1)], so dCℓ/dℓ ∝ -1/ℓ² (approximately)
+        # For constant Dℓ, Cℓ ∝ 1/[ℓ(ℓ+1)] and dCℓ/dℓ ∝ -ℓ⁻³.
         Dℓ_const = [1000.0, 1000.0, 1000.0, 1000.0]
         ab_coeff = 1e-3
         
         Δ_Dℓ_mult = CMBForegrounds.aberration_response(ℓs, ab_coeff, Dℓ_const)
         
         # Aberration = -ab_coeff * dCℓ/dℓ * ℓ²(ℓ+1)/(2π)
-        # For dCℓ/dℓ ∝ -1/ℓ², this becomes ∝ ℓ²(ℓ+1)/(ℓ²) = ℓ+1 ≈ ℓ for large ℓ
-        # So aberration should increase roughly linearly with ℓ
-        
         @test all(isfinite.(Δ_Dℓ_mult))
         @test all(Δ_Dℓ_mult .!= 0.0)
-        
-        # Should scale with multipole in some predictable way
-        # (exact scaling depends on derivative behavior from finite differences)
-        @test abs(Δ_Dℓ_mult[4]) > abs(Δ_Dℓ_mult[1])  # Higher ℓ should have larger response
+
+        # Compare directly with the finite-difference response definition.
+        dC = CMBForegrounds.dCl_dell_from_Dl(ℓs, Dℓ_const)
+        expected = @. -ab_coeff * dC * ℓs^2 * (ℓs + 1) / (2π)
+        @test Δ_Dℓ_mult ≈ expected
     end
     
     @testset "Memory and Performance" begin

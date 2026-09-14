@@ -92,6 +92,14 @@ using Random
         # Verify exact mathematical relation between the two conventions
         @test w_flux ≈ radio_sed(220.0, 150.0, beta_flux - 2) rtol=1e-12
 
+        # Both conventions honor the stored CMB temperature.
+        sed_rj_hot = RadioSED(150.0; convention=:rj, T_CMB=4.0)
+        sed_flux_hot = RadioSED(150.0; convention=:flux, T_CMB=4.0)
+        @test sed_weight(sed_rj_hot, 220.0, beta_rj) ≈
+              radio_sed(220.0, 150.0, beta_rj, 4.0)
+        @test sed_weight(sed_flux_hot, 220.0, beta_flux) ≈
+              CMBForegrounds._radio_sed_ratio(220.0, 150.0, beta_flux, 4.0)
+
         # Band integration
         pband = point_band(220.0)
         @test sed_weight(sed_rj, pband, beta_rj) ≈ w_rj
@@ -124,6 +132,12 @@ using Random
         pband = point_band(220.0)
         @test sed_weight(sed_sz, pband) ≈ w
 
+        # The stored CMB temperature is honored by every tSZ path.
+        sed_hot = ThermalSZSED(143.0; T_CMB=4.0)
+        @test sed_weight(sed_hot, nu) ≈ tsz_g_ratio(nu, 143.0, 4.0)
+        @test sed_weight(sed_hot, [143.0, nu]) ≈ tsz_g_ratio.([143.0, nu], 143.0, 4.0)
+        @test sed_weight(sed_hot, pband) ≈ tsz_g_ratio(nu, 143.0, 4.0)
+
         # Type stability
         JET.@test_opt sed_weight(sed_sz, nu)
         JET.@test_opt sed_weight(sed_sz, pband)
@@ -143,6 +157,16 @@ using Random
         @test sed_weight(no_sed, 150.0) == 1.0
         @test sed_weight(no_sed, point_band(150.0)) == 1.0
         @test all(sed_weight(no_sed, [90.0, 150.0]) .== 1.0)
+
+        @test sed_weight(c_sed, DeltaBand(150.0)) == 1.0
+        @test sed_weight(no_sed, DeltaBand(150.0)) == 1.0
+
+        beam = ChromaticBeam([2, 3], ones(2, 1))
+        @test sed_weight(c_sed, DeltaBand(150.0), beam) == ones(2)
+        @test sed_weight(no_sed, DeltaBand(150.0), beam) == ones(2)
+
+        # Dispatch remains unambiguous as new band representations are added.
+        @test isempty(Test.detect_ambiguities(CMBForegrounds; recursive=true))
     end
 
     # ----------------------------------------------------------------- #

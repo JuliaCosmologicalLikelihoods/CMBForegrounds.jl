@@ -83,11 +83,13 @@ function correlation_power end
 # TemplateCorrelation evaluator
 @inline function correlation_power(corr::TemplateCorrelation, ells::AbstractVector,
                                    xi::Real, A1::Real, A2::Real,
-                                   f1_1::Real, f1_2::Real, f2_1::Real, f2_2::Real)
+                                   f1_1::Union{Real, AbstractVector},
+                                   f1_2::Union{Real, AbstractVector},
+                                   f2_1::Union{Real, AbstractVector},
+                                   f2_2::Union{Real, AbstractVector})
     T_ell = angular_power(corr.shape, ells)
-    f_cross = f1_1 * f2_2 + f1_2 * f2_1
-    factor = -xi * sqrt(abs(A1 * A2)) * f_cross
-    return @. factor * T_ell
+    amplitude = -xi * sqrt(abs(A1 * A2))
+    return @. amplitude * (f1_1 * f2_2 + f1_2 * f2_1) * T_ell
 end
 
 @inline function correlation_power(corr::TemplateCorrelation,

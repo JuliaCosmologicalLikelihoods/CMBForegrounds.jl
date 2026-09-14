@@ -9,17 +9,18 @@ const DI = DifferentiationInterface
 using JET
 using Random
 
-@testset "Phase 6 — Integration Validation and Benchmarks" begin
+@testset "Survey-style composition smoke tests" begin
     rng = MersenneTwister(42)
-    ells = collect(range(100.0, 3000.0, length=50))
+    ells = unique(round.(Int, range(100, 3000, length=50)))
     n_ell = length(ells)
 
-    # Common synthetic templates normalized at ell=3000
-    tsz_template = [1.0 / (1.0 + (l / 3000.0)^2) for l in ells]
-    cibc_template = [(l / 3000.0)^0.8 for l in ells]
-    szxcib_template = [(l / 3000.0)^0.5 for l in ells]
-    dust_template = [(3000.0 / l)^0.6 for l in ells]
-    ksz_template = ones(n_ell)
+    # Synthetic dense integer-grid templates. These are composition tests, not
+    # released survey reference vectors.
+    template_ells = 0:3000
+    tsz_template = [1.0 / (1.0 + (l / 3000)^2) for l in template_ells]
+    cibc_template = [(l / 3000)^0.8 for l in template_ells]
+    szxcib_template = [(l / 3000)^0.5 for l in template_ells]
+    dust_template = [(3000 / max(l, 1))^0.6 for l in template_ells]
 
     # ----------------------------------------------------------------- #
     # 1. HiLLiPoP-like configuration                                    #
@@ -53,7 +54,13 @@ using Random
                                       f_tsz[i], f_tsz[j], f_cib[i], f_cib[j])
                     for i in 1:n_freq, j in 1:n_freq]
         @test length(D_szxcib) == n_freq * n_freq
-        @test all(isfinite, D_dust .+ D_radio)
+        @test all(D_szxcib[i, j] ≈ D_szxcib[j, i]
+                  for i in 1:n_freq, j in 1:n_freq)
+        D_total = D_dust .+ D_radio
+        for i in 1:n_freq, j in 1:n_freq
+            D_total[i, j, :] .+= D_szxcib[i, j]
+        end
+        @test all(isfinite, D_total)
 
         # AD verification w.r.t dust amplitude
         loss_hillipop = A -> sum(eval_component(dust_comp, ells, bands, A[1], 1.55))
@@ -104,15 +111,17 @@ using Random
         coeffs = [0.1, -0.05]
         D_beam_pert = beam_eigenmode_response(D_tot[2, 2, :], modes, coeffs; linearized=false)
         @test all(isfinite, D_beam_pert)
+        D_with_beam = copy(D_tot)
+        D_with_beam[2, 2, :] = D_beam_pert
 
         # Map calibration
         gains = [1.01, 1.00, 0.99]
-        D_cal = apply_calibration(D_tot, gains; convention=:forward)
+        D_cal = apply_calibration(D_with_beam, gains; convention=:forward)
         @test size(D_cal) == (n_freq, n_freq, n_ell)
 
         # AD verification
         loss_spt = g -> sum(apply_calibration(D_tot, g; convention=:forward))
-        g_fd = ForwardDiff.gradient(loss_spt, gains)
+        g_fd = DI.gradient(loss_spt, AutoForwardDiff(), gains)
         g_mc = DI.gradient(loss_spt, AutoMooncake(config=nothing), gains)
         @test isapprox(g_fd, g_mc; rtol=1e-6)
     end
@@ -147,13 +156,14 @@ using Random
 
         # Correlated cross
         cross_corr = TemplateCorrelation(szxcib_template)
+        f_tsz = [sed_weight(tsz_comp.sed, bands[i], chrom_beams[i]) for i in 1:n_freq]
+        f_cib = [sed_weight(cibc_comp.sed, bands[i], chrom_beams[i], 1.75) for i in 1:n_freq]
         D_szxcib = [begin
-            s1 = sed_weight(tsz_comp.sed, bands[i], chrom_beams[i])
-            s2 = sed_weight(cibc_comp.sed, bands[j], chrom_beams[j], 1.75)
-            # Louis et al. 2025 Eq 30
-            ang = angular_power(cross_corr.shape, ells)
-            @. -0.1 * sqrt(4.5 * 6.0) * (s1 * s2) * ang
+            correlation_power(cross_corr, ells, 0.1, 4.5, 6.0,
+                              f_tsz[i], f_tsz[j], f_cib[i], f_cib[j])
         end for i in 1:n_freq, j in 1:n_freq]
+        @test all(D_szxcib[i, j] ≈ D_szxcib[j, i]
+                  for i in 1:n_freq, j in 1:n_freq)
 
         D_tot = D_tsz .+ D_cibc
         for i in 1:n_freq, j in 1:n_freq
@@ -168,9 +178,18 @@ using Random
 
         # AD on calibration
         loss_act = g -> sum(apply_calibration(D_tot, g; convention=:forward))
-        g_fd = ForwardDiff.gradient(loss_act, gains)
+        g_fd = DI.gradient(loss_act, AutoForwardDiff(), gains)
         g_mc = DI.gradient(loss_act, AutoMooncake(config=nothing), gains)
         @test isapprox(g_fd, g_mc; rtol=1e-6)
+
+        # Differentiate a chromatic component, rather than only fixed-spectrum gains.
+        loss_cib(p) = sum(eval_component(cibc_comp, ells, bands, chrom_beams,
+                                         p[1], p[2]))
+        p_cib = [6.0, 1.75]
+        g_cib_fd = DI.gradient(loss_cib, AutoForwardDiff(), p_cib)
+        g_cib_mc = DI.gradient(loss_cib, AutoMooncake(config=nothing), p_cib)
+        @test all(isfinite, g_cib_fd)
+        @test g_cib_fd ≈ g_cib_mc rtol=1e-6
     end
 
     # ----------------------------------------------------------------- #
@@ -227,11 +246,11 @@ using Random
     end
 
     # ----------------------------------------------------------------- #
-    # 6. Assembler Parity & Benchmarks                                  #
+    # 6. Assembler regression                                           #
     # ----------------------------------------------------------------- #
-    @testset "6. Assembler Parity & Benchmarks" begin
+    @testset "6. Assembler regression" begin
         n_f = 6
-        n_l = 1000
+        n_l = 40
         rng_b = MersenneTwister(123)
         ap, ag, as = 0.5, 0.7, 0.3
         fk   = rand(rng_b, n_f); fcp  = rand(rng_b, n_f)
@@ -255,14 +274,20 @@ using Random
         @test size(D_TE) == (n_f, n_f, n_l)
         @test all(isfinite, D_TE)
 
-        # Forward assemble_TT verification
-        D_TT_eval = assemble_TT(ap, ag, as, fk, fcp, fd, fr, ft, fc, ck, ccp, cdt, crd, ct, cc, csxc)
-        @test size(D_TT_eval) == (n_f, n_f, n_l)
-        @test all(isfinite, D_TT_eval)
+        # Compare the fused implementation with independent composition.
+        D_TT_ref = factorized_cross(fk, ck) .+
+                   ap .* factorized_cross(fcp, ccp) .+
+                   ag .* factorized_cross(fd, cdt) .+
+                   as .* factorized_cross(fr, crd) .+
+                   factorized_cross(ft, ct) .+
+                   factorized_cross(fc, cc) .+
+                   factorized_cross_te(ft, fc, csxc) .+
+                   factorized_cross_te(fc, ft, csxc)
+        @test D_TT ≈ D_TT_ref rtol=1e-14
 
         # Prepared Mooncake gradient verification
         v0 = vcat([ap, ag, as], fk, fcp, fd, fr, ft, fc, ck, ccp, cdt, crd, ct, cc, csxc)
-        function g_TT_bench(v)
+        function loss_TT(v)
             _ap, _ag, _as = v[1], v[2], v[3]
             idx = 4
             _fk   = v[idx:idx+n_f-1]; idx += n_f
@@ -281,10 +306,11 @@ using Random
             return sum(assemble_TT(_ap, _ag, _as, _fk, _fcp, _fd, _fr, _ft, _fc, _ck, _ccp, _cdt, _crd, _ct, _cc, _csxc))
         end
 
-        prep_mc = DI.prepare_gradient(g_TT_bench, AutoMooncake(; config=nothing), v0)
+        prep_mc = DI.prepare_gradient(loss_TT, AutoMooncake(; config=nothing), v0)
         grad_out = similar(v0)
-        DI.gradient!(g_TT_bench, grad_out, prep_mc, AutoMooncake(; config=nothing), v0)
-        @test all(isfinite, grad_out)
+        DI.gradient!(loss_TT, grad_out, prep_mc, AutoMooncake(; config=nothing), v0)
+        grad_fd = DI.gradient(loss_TT, AutoForwardDiff(), v0)
+        @test grad_out ≈ grad_fd rtol=1e-10
         @test length(grad_out) == length(v0)
     end
 end

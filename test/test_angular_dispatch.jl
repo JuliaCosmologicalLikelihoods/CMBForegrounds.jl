@@ -79,9 +79,6 @@ using Random
             @test res_poisson[idx_3000] ≈ res_ell2[idx_3000] ≈ amp
         end
 
-        # Generic alpha argument ignored
-        @test angular_power(poisson, ells_vec, 0.0; amp=amp) ≈ res_poisson
-
         # Type stability
         JET.@test_opt angular_power(poisson, ells_vec; amp=amp)
 
@@ -138,6 +135,20 @@ using Random
         grad_zg = DI.gradient(g_tmpl, AutoZygote(), [amp])
         @test grad_fd ≈ grad_mk rtol=1e-8
         @test grad_fd ≈ grad_zg rtol=1e-8
+
+        # Query semantics do not depend on request length or ordering.
+        short = TemplateShape([10.0, 20.0, 30.0]; ell_0=3, ell_min=2)
+        @test angular_power(short, [4, 3, 2]) == [1.5, 1.0, 0.5]
+        @test angular_power(short, [2, 4]) == [0.5, 1.5]
+        @test_throws ArgumentError angular_power(short, [2.5])
+        @test_throws BoundsError angular_power(short, [5])
+
+        # Template values may be active parameters, including the pivot value.
+        g_values(x) = sum(angular_power(TemplateShape(x; ell_0=2, ell_min=2), [2, 3]))
+        expected = [-2.0, 1.0]
+        @test DI.gradient(g_values, AutoForwardDiff(), [1.0, 2.0]) ≈ expected
+        @test DI.gradient(g_values, AutoMooncake(; config=nothing), [1.0, 2.0]) ≈ expected
+        @test DI.gradient(g_values, AutoZygote(), [1.0, 2.0]) ≈ expected
     end
 
     # ----------------------------------------------------------------- #
@@ -174,6 +185,15 @@ using Random
         grad_zg = DI.gradient(g_tilted, AutoZygote(), p0)
         @test grad_fd ≈ grad_mk rtol=1e-8
         @test grad_fd ≈ grad_zg rtol=1e-8
+
+        # The derivative at zero tilt is not zero.
+        base = TemplateShape([2.0, 3.0]; ell_0=nothing, ell_min=2)
+        zero_tilt = TiltedTemplateShape(base, 2.0)
+        g_zero(p) = sum(angular_power(zero_tilt, [2, 3]; alpha=p[1]))
+        expected_zero = [3 * log(3 / 2)]
+        @test DI.gradient(g_zero, AutoForwardDiff(), [0.0]) ≈ expected_zero
+        @test DI.gradient(g_zero, AutoMooncake(; config=nothing), [0.0]) ≈ expected_zero
+        @test DI.gradient(g_zero, AutoZygote(), [0.0]) ≈ expected_zero
     end
 
     # ----------------------------------------------------------------- #
@@ -188,8 +208,8 @@ using Random
         shape_tm = TemplateShape(norm_template; ell_0=nothing, ell_min=0)
 
         # Mock generic component evaluator
-        function eval_component(angular_model::AbstractAngularModel, ells, sed_factor, amp, slope)
-            ang = angular_power(angular_model, ells, slope; amp=amp)
+        function eval_component(angular_model::AbstractAngularModel, ells, sed_factor, amp; kwargs...)
+            ang = angular_power(angular_model, ells; amp=amp, kwargs...)
             return sed_factor .* ang
         end
 
@@ -197,8 +217,8 @@ using Random
         amp = 5.0
         slope = 0.8
 
-        c_pl = eval_component(shape_pl, ells_vec, sed_factor, amp, slope)
-        c_tm = eval_component(shape_tm, ells_vec, sed_factor, amp, slope)
+        c_pl = eval_component(shape_pl, ells_vec, sed_factor, amp; alpha=slope)
+        c_tm = eval_component(shape_tm, ells_vec, sed_factor, amp)
 
         @test length(c_pl) == length(ells_vec)
         @test length(c_tm) == length(ells_vec)

@@ -58,7 +58,7 @@ end
 PoissonShape() = PoissonShape(3000.0)
 
 """
-    TemplateShape{V<:AbstractVector, T<:Union{Nothing, Real}, I<:Integer} <: AbstractAngularModel
+    TemplateShape{V<:AbstractVector, T<:Union{Nothing, Integer}, I<:Integer} <: AbstractAngularModel
 
 Tabulated ``D_\\ell`` template.
 
@@ -67,17 +67,26 @@ Tabulated ``D_\\ell`` template.
 - `ell_0::T`: Pivot multipole where the template is normalized to 1, or `nothing` if already normalized.
 - `ell_min::I`: Starting multipole corresponding to `template[1]` (default 0).
 """
-struct TemplateShape{V<:AbstractVector, T<:Union{Nothing, Real}, I<:Integer} <: AbstractAngularModel
+struct TemplateShape{V<:AbstractVector, T<:Union{Nothing, Integer}, I<:Integer} <: AbstractAngularModel
     template::V
     ell_0::T
     ell_min::I
 end
 
 function TemplateShape(template::AbstractVector, ell_0::Union{Nothing, Real}; ell_min::Integer=0)
-    return TemplateShape{typeof(template), typeof(ell_0), typeof(ell_min)}(template, ell_0, ell_min)
+    pivot = if ell_0 === nothing
+        nothing
+    elseif isinteger(ell_0)
+        Int(ell_0)
+    else
+        throw(ArgumentError("TemplateShape: ell_0 must be an integer multipole or nothing"))
+    end
+    pivot !== nothing && !(ell_min <= pivot < ell_min + length(template)) &&
+        throw(ArgumentError("TemplateShape: ell_0 is outside the template multipole range"))
+    return TemplateShape{typeof(template), typeof(pivot), typeof(ell_min)}(template, pivot, ell_min)
 end
 
-function TemplateShape(template::AbstractVector; ell_0::Union{Nothing, Real}=3000.0, ell_min::Integer=0)
+function TemplateShape(template::AbstractVector; ell_0::Union{Nothing, Real}=nothing, ell_min::Integer=0)
     return TemplateShape(template, ell_0; ell_min=ell_min)
 end
 
@@ -133,28 +142,21 @@ end
     return @. amp * (ell * (ell + 1)) / norm
 end
 
-@inline function angular_power(model::PoissonShape, ell::AbstractVector, alpha::Real; amp::Real=1.0)
-    return angular_power(model, ell; amp=amp)
+@inline function _template_indices(model::TemplateShape, ell::AbstractVector)
+    all(isinteger, ell) || throw(ArgumentError("TemplateShape can only be evaluated at integer multipoles"))
+    idx = Int.(ell) .- model.ell_min .+ 1
+    all(i -> checkbounds(Bool, model.template, i), idx) ||
+        throw(BoundsError(model.template, idx))
+    return idx
+end
+
+@inline function _template_norm(model::TemplateShape)
+    return model.ell_0 === nothing ? one(eltype(model.template)) :
+           model.template[model.ell_0 - model.ell_min + 1]
 end
 
 @inline function _template_val(model::TemplateShape, ell::AbstractVector)
-    if length(ell) == length(model.template)
-        if model.ell_0 === nothing
-            return model.template
-        else
-            idx0 = findfirst(isequal(model.ell_0), ell)
-            norm = idx0 !== nothing ? model.template[idx0] : one(eltype(model.template))
-            return norm == 1 ? model.template : model.template ./ norm
-        end
-    end
-    norm = model.ell_0 === nothing ? one(eltype(model.template)) : model.template[round(Int, model.ell_0) - model.ell_min + 1]
-    idx = @. round(Int, ell) - model.ell_min + 1
-    vals = model.template[idx]
-    if norm == 1
-        return vals
-    else
-        return vals ./ norm
-    end
+    return model.template[_template_indices(model, ell)] ./ _template_norm(model)
 end
 
 @inline function angular_power(model::TemplateShape, ell::AbstractVector; amp::Real=1.0)
@@ -162,17 +164,8 @@ end
     return @. amp * t
 end
 
-@inline function angular_power(model::TemplateShape, ell::AbstractVector, alpha::Real; amp::Real=1.0)
-    return angular_power(model, ell; amp=amp)
-end
-
 @inline function angular_power(model::TemplateShape; amp::Real=1.0)
-    norm = model.ell_0 === nothing ? one(eltype(model.template)) : model.template[Int(model.ell_0) - model.ell_min + 1]
-    if norm == 1
-        return @. amp * model.template
-    else
-        return @. amp * (model.template / norm)
-    end
+    return amp .* model.template ./ _template_norm(model)
 end
 
 @inline function angular_power(model::TiltedTemplateShape, ell::AbstractVector, alpha::Real; amp::Real=1.0)
@@ -182,8 +175,5 @@ end
 
 @inline function angular_power(model::TiltedTemplateShape, ell::AbstractVector; amp::Real=1.0, alpha::Real=0.0)
     base = angular_power(model.shape, ell; amp=amp)
-    if iszero(alpha)
-        return base
-    end
     return @. base * (ell / model.ell_0)^alpha
 end

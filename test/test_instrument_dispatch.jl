@@ -8,7 +8,7 @@ using DifferentiationInterface
 const DI = DifferentiationInterface
 using JET
 
-@testset "Phase 5 — Instrumental Operations" begin
+@testset "Instrumental operations" begin
     ells = collect(range(100.0, 3000.0, length=50))
     n_ell = length(ells)
     cl = [1.0 / (l^2) for l in ells]
@@ -48,7 +48,7 @@ using JET
 
         # AD on calibration
         loss_cal = g -> sum(apply_calibration(D, g; convention=:forward))
-        g_fd = ForwardDiff.gradient(loss_cal, gains)
+        g_fd = DI.gradient(loss_cal, AutoForwardDiff(), gains)
         g_mc = DI.gradient(loss_cal, AutoMooncake(config=nothing), gains)
         @test isapprox(g_fd, g_mc; rtol=1e-6)
     end
@@ -89,6 +89,7 @@ using JET
     @testset "3. Polarization leakage" begin
         C_TT = cl
         C_TE = 0.3 .* cl
+        C_ET = 0.7 .* cl
         gamma1 = 0.05
         gamma2 = 0.03
 
@@ -101,8 +102,8 @@ using JET
         @test dC_ET ≈ gamma1 .* C_TT
 
         # EE leakage cross
-        dC_EE_cross = ee_leakage(C_TT, C_TE, C_TE, gamma1, gamma2)
-        expected_ee = gamma1 .* C_TE .+ gamma2 .* C_TE .+ (gamma1 * gamma2) .* C_TT
+        dC_EE_cross = ee_leakage(C_TT, C_TE, C_ET, gamma1, gamma2)
+        expected_ee = gamma1 .* C_TE .+ gamma2 .* C_ET .+ (gamma1 * gamma2) .* C_TT
         @test dC_EE_cross ≈ expected_ee
 
         # EE leakage auto
@@ -121,6 +122,17 @@ using JET
         D_TE_obs = apply_te_leakage(D_TE, D_TT, gammas)
         for i in 1:2, j in 1:2
             @test D_TE_obs[i, j, :] ≈ fill(1.0 + gammas[j] * 2.0, n_ell)
+        end
+
+        # Preserve ordered TE/ET legs in the EE map-response algebra.
+        D_TE_ordered = [10i + j + 0.01l for i in 1:2, j in 1:2, l in 1:n_ell]
+        D_EE = zeros(2, 2, n_ell)
+        D_EE_obs = apply_ee_leakage(D_EE, D_TE_ordered, D_TT, gammas)
+        for i in 1:2, j in 1:2
+            expected = @. gammas[i] * D_TE_ordered[i, j, :] +
+                           gammas[j] * D_TE_ordered[j, i, :] +
+                           gammas[i] * gammas[j] * D_TT[i, j, :]
+            @test D_EE_obs[i, j, :] ≈ expected
         end
 
         # AD on leakage
@@ -143,9 +155,10 @@ using JET
         delta_b = modes * coeffs
         @test perturbed ≈ cl .* (1 .+ delta_b).^2
 
-        # Linearized: 2 * cl * delta_b
+        # Linearized corrected spectrum: cl * (1 + 2delta_b)
         perturbed_lin = beam_eigenmode_response(cl, modes, coeffs; linearized=true)
-        @test perturbed_lin ≈ 2 .* cl .* delta_b
+        @test perturbed_lin ≈ cl .* (1 .+ 2 .* delta_b)
+        @test beam_eigenmode_response(cl, modes, zeros(n_modes); linearized=true) == cl
 
         # Cross beam eigenmodes
         coeffs_j = [0.1, 0.2, -0.1]
@@ -155,7 +168,7 @@ using JET
 
         # AD on beam mode coefficients
         loss_beam = c -> sum(beam_eigenmode_response(cl, modes, c; linearized=false))
-        g_fd = ForwardDiff.gradient(loss_beam, coeffs)
+        g_fd = DI.gradient(loss_beam, AutoForwardDiff(), coeffs)
         g_mc = DI.gradient(loss_beam, AutoMooncake(config=nothing), coeffs)
         @test isapprox(g_fd, g_mc; rtol=1e-6)
     end

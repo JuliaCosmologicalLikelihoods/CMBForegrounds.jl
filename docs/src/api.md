@@ -107,6 +107,7 @@ shift_and_normalize
 eval_sed_bands
 integrate_tsz
 trapz
+x_cmb
 cmb2bb
 rj2cmb
 tsz_f

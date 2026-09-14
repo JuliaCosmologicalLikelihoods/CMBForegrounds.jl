@@ -163,11 +163,7 @@ end
 end
 
 @inline function sed_weight(sed::ModifiedBlackbodySED, band::Band, beta::Real)
-    if band.monofreq
-        return sed_weight(sed, band.nu[1], beta)
-    end
-    fn = ν -> sed_weight(sed, ν, beta)
-    return integrate_sed(fn, band)
+    return integrate_sed(ν -> sed_weight(sed, ν, beta), band)
 end
 
 # RadioSED
@@ -175,7 +171,7 @@ end
     if sed.convention === :flux
         return _radio_sed_ratio(nu, sed.nu_0, beta, sed.T_CMB)
     else
-        return radio_sed(nu, sed.nu_0, beta)
+        return radio_sed(nu, sed.nu_0, beta, sed.T_CMB)
     end
 end
 
@@ -183,43 +179,46 @@ end
     if sed.convention === :flux
         return _radio_sed_ratio.(nu, sed.nu_0, beta, sed.T_CMB)
     else
-        return radio_sed(nu, sed.nu_0, beta)
+        return radio_sed(nu, sed.nu_0, beta, sed.T_CMB)
     end
 end
 
 @inline function sed_weight(sed::RadioSED, band::Band, beta::Real)
-    if band.monofreq
-        return sed_weight(sed, band.nu[1], beta)
-    end
-    fn = ν -> sed_weight(sed, ν, beta)
-    return integrate_sed(fn, band)
+    return integrate_sed(ν -> sed_weight(sed, ν, beta), band)
 end
 
 # ThermalSZSED
 @inline function sed_weight(sed::ThermalSZSED, nu::Real)
-    return tsz_sed(nu, sed.nu_0)
+    return tsz_sed(nu, sed.nu_0, sed.T_CMB)
 end
 
 @inline function sed_weight(sed::ThermalSZSED, nu::AbstractVector{<:Real})
-    return tsz_sed(nu, sed.nu_0)
+    return tsz_sed(nu, sed.nu_0, sed.T_CMB)
 end
 
 @inline function sed_weight(sed::ThermalSZSED, band::Band)
-    return integrate_tsz(band, sed.nu_0)
+    return integrate_tsz(band, sed.nu_0, sed.T_CMB)
 end
 
 # DeltaBand generic fallback
 @inline sed_weight(sed::AbstractSED, band::DeltaBand, args...) = sed_weight(sed, band.nu_eff, args...)
+@inline function sed_weight(sed::AbstractSED, band::DeltaBand,
+                            chromatic_beam::ChromaticBeam, args...)
+    return fill(sed_weight(sed, band.nu_eff, args...), length(chromatic_beam.ells))
+end
 
 # ConstantSED
-@inline sed_weight(::ConstantSED, ::Union{Real, AbstractBand}) = 1.0
+@inline sed_weight(::ConstantSED, nu::Real) = one(nu)
 @inline sed_weight(::ConstantSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
-@inline sed_weight(::ConstantSED, ::AbstractBand, chromatic_beam::ChromaticBeam) = ones(length(chromatic_beam.ells))
 
 # NoSED
-@inline sed_weight(::NoSED, ::Union{Real, AbstractBand}) = 1.0
+@inline sed_weight(::NoSED, nu::Real) = one(nu)
 @inline sed_weight(::NoSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
-@inline sed_weight(::NoSED, ::AbstractBand, chromatic_beam::ChromaticBeam) = ones(length(chromatic_beam.ells))
+
+# Generic tabulated-band lifting for SEDs without a specialized hot path.
+@inline function sed_weight(sed::Union{ConstantSED, NoSED}, band::Band)
+    return integrate_sed(ν -> sed_weight(sed, ν), band)
+end
 
 # Chromatic beam single-band evaluation
 @inline function sed_weight(sed::AbstractSED, band::AbstractBand, chromatic_beam::ChromaticBeam, args...)
@@ -255,7 +254,7 @@ function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::A
                         amp::Real, sed_args...; angular_args...)
     s1 = sed_weight(sed, nu1, sed_args...)
     s2 = sed_weight(sed, nu2, sed_args...)
-    ang = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    ang = angular_power(angular, ells; amp=amp, angular_args...)
     return @. (s1 * s2) * ang
 end
 
@@ -275,7 +274,7 @@ function eval_component(sed1::AbstractSED, sed2::AbstractSED, angular::AbstractA
                         amp::Real, sed1_args::Tuple=(), sed2_args::Tuple=(); angular_args...)
     s1 = sed_weight(sed1, nu1, sed1_args...)
     s2 = sed_weight(sed2, nu2, sed2_args...)
-    ang = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    ang = angular_power(angular, ells; amp=amp, angular_args...)
     return @. (s1 * s2) * ang
 end
 
@@ -287,7 +286,7 @@ Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` for an array o
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
                         bands::AbstractVector{<:AbstractBand}, amp::Real, sed_args...; angular_args...)
     f = [sed_weight(sed, b, sed_args...) for b in bands]
-    cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross(f, cl)
 end
 
@@ -304,8 +303,10 @@ Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` with chromatic
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
                         bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam},
                         amp::Real, sed_args...; angular_args...)
+    all(beam -> _same_multipole_grid(beam.ells, ells), chromatic_beams) ||
+        throw(ArgumentError("chromatic beam multipoles must match ells"))
     F = eval_chromatic_sed_bands(ν -> sed_weight(sed, ν, sed_args...), bands, chromatic_beams)
-    cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross(F, cl)
 end
 
@@ -325,7 +326,7 @@ function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::Abstra
                            sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...)
     fT = [sed_weight(sedT, b, sedT_args...) for b in bandsT]
     fE = [sed_weight(sedE, b, sedE_args...) for b in bandsE]
-    cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross_te(fT, fE, cl)
 end
 
@@ -338,8 +339,12 @@ function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::Abstra
                            bandsT::AbstractVector{<:AbstractBand}, beamsT::AbstractVector{<:ChromaticBeam},
                            bandsE::AbstractVector{<:AbstractBand}, beamsE::AbstractVector{<:ChromaticBeam},
                            amp::Real, sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...)
+    all(beam -> _same_multipole_grid(beam.ells, ells), beamsT) ||
+        throw(ArgumentError("temperature chromatic beam multipoles must match ells"))
+    all(beam -> _same_multipole_grid(beam.ells, ells), beamsE) ||
+        throw(ArgumentError("polarization chromatic beam multipoles must match ells"))
     FT = eval_chromatic_sed_bands(ν -> sed_weight(sedT, ν, sedT_args...), bandsT, beamsT)
     FE = eval_chromatic_sed_bands(ν -> sed_weight(sedE, ν, sedE_args...), bandsE, beamsE)
-    cl = angular_power(angular, ells, values(angular_args)...; amp=amp)
+    cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross_te(FT, FE, cl)
 end

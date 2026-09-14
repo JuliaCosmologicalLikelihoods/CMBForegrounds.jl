@@ -190,11 +190,11 @@ end
 Integrate the normalized tSZ SED over a band.
 This avoids higher-order closures in hot AD/JET paths.
 """
-function integrate_tsz(band::Band{T}, nu_0::S) where {T<:Real,S<:Real}
+function integrate_tsz(band::Band{T}, nu_0::S, T_CMB::Real=T_CMB) where {T<:Real,S<:Real}
     if band.monofreq
-        return tsz_sed(band.nu[1], nu_0)
+        return tsz_sed(band.nu[1], nu_0, T_CMB)
     end
-    y = tsz_sed(band.nu, nu_0) .* band.norm_bp
+    y = tsz_sed(band.nu, nu_0, T_CMB) .* band.norm_bp
     return trapz(band.nu, y)
 end
 
@@ -222,7 +222,8 @@ function eval_sed_bands(sed_fn, bands::AbstractVector{Band{T}}) where {T<:Real}
 end
 
 @inline integrate_sed(sed_fn, band::DeltaBand) = sed_fn(band.nu_eff)
-@inline integrate_tsz(band::DeltaBand, nu_0::Real) = tsz_sed(band.nu_eff, nu_0)
+@inline integrate_tsz(band::DeltaBand, nu_0::Real, T_CMB::Real=T_CMB) =
+    tsz_sed(band.nu_eff, nu_0, T_CMB)
 
 function eval_sed_bands(sed_fn, bands::AbstractVector{<:AbstractBand})
     return [integrate_sed(sed_fn, b) for b in bands]
@@ -251,6 +252,14 @@ struct ChromaticBeam{L<:AbstractVector, M<:AbstractMatrix}
     end
 end
 
+@inline function _same_multipole_grid(a::AbstractVector, b::AbstractVector)
+    length(a) == length(b) || return false
+    @inbounds for i in eachindex(a, b)
+        a[i] == b[i] || return false
+    end
+    return true
+end
+
 """
     integrate_chromatic_sed(sed_fn, band::Band, chromatic_beam::ChromaticBeam) -> Vector
 
@@ -277,33 +286,15 @@ function integrate_chromatic_sed(sed_fn, band::Band{T}, chromatic_beam::Chromati
     n_nu = length(band.nu)
     @assert size(chromatic_beam.beam, 2) == n_nu "ChromaticBeam: beam second dimension must match band frequency count"
 
-    # Pre-evaluate SED across frequency grid
-    f1 = sed_fn(band.nu[1])
-    sed_vals = Vector{typeof(f1)}(undef, n_nu)
-    sed_vals[1] = f1
-    @inbounds for i in 2:n_nu
-        sed_vals[i] = sed_fn(band.nu[i])
-    end
-
-    R = promote_type(T, typeof(f1), eltype(chromatic_beam.beam))
-    F_ell = Vector{R}(undef, n_ell)
-
-    y_num = Vector{R}(undef, n_nu)
-    y_den = Vector{R}(undef, n_nu)
-
-    @inbounds for ℓ in 1:n_ell
-        for i in 1:n_nu
-            b_val = chromatic_beam.beam[ℓ, i]
-            w = b_val * band.norm_bp[i]
-            y_den[i] = w
-            y_num[i] = w * sed_vals[i]
-        end
-        num = trapz(band.nu, y_num)
-        den = trapz(band.nu, y_den)
-        F_ell[ℓ] = num / den
-    end
-
-    return F_ell
+    sed_vals = sed_fn.(band.nu)
+    dnu = diff(band.nu)
+    trapz_weights = vcat(first(dnu) / 2,
+                         (dnu[1:end-1] .+ dnu[2:end]) ./ 2,
+                         last(dnu) / 2)
+    weights = trapz_weights .* band.norm_bp
+    numerator = chromatic_beam.beam * (weights .* sed_vals)
+    denominator = chromatic_beam.beam * weights
+    return numerator ./ denominator
 end
 
 @inline integrate_chromatic_sed(sed_fn, band::DeltaBand, chromatic_beam::ChromaticBeam) = fill(sed_fn(band.nu_eff), length(chromatic_beam.ells))
@@ -316,14 +307,12 @@ Returns a 2D matrix of shape `(n_freq, n_ell)`.
 """
 function eval_chromatic_sed_bands(sed_fn, bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam})
     n_freq = length(bands)
+    n_freq > 0 || throw(ArgumentError("eval_chromatic_sed_bands: bands cannot be empty"))
     @assert length(chromatic_beams) == n_freq "Number of bands and chromatic beams must match"
-    n_ell = length(chromatic_beams[1].ells)
 
-    F1 = integrate_chromatic_sed(sed_fn, bands[1], chromatic_beams[1])
-    F = Matrix{eltype(F1)}(undef, n_freq, n_ell)
-    F[1, :] = F1
-    @inbounds for i in 2:n_freq
-        F[i, :] = integrate_chromatic_sed(sed_fn, bands[i], chromatic_beams[i])
-    end
-    return F
+    all(beam -> _same_multipole_grid(beam.ells, chromatic_beams[1].ells), chromatic_beams) ||
+        throw(ArgumentError("all chromatic beams must use the same multipole grid"))
+    responses = [integrate_chromatic_sed(sed_fn, bands[i], chromatic_beams[i])
+                 for i in eachindex(bands)]
+    return permutedims(reduce(hcat, responses))
 end
