@@ -109,6 +109,46 @@ using JET
                                 bands, chrom_beams, bands, chrom_beams, 2.0,
                                 (1.75,), (1.75,); alpha=-0.6)
 
+        tensor = eval_component(component, ells, prepared, 2.0, 1.75;
+                                alpha=-0.6)
+        pair = eval_component(component, ells, prepared1, prepared2,
+                              2.0, 1.75; alpha=-0.6)
+        @test pair ≈ tensor[1, 2, :]
+        mixed_pair = eval_component(component, ells, band1, prepared2,
+                                    2.0, 1.75; alpha=-0.6)
+        mixed_expected = sed_weight(mbb, band1, 1.75) .*
+                         sed_weight(mbb, prepared2, 1.75) .*
+                         angular_power(component.angular, ells;
+                                       amp=2.0, alpha=-0.6)
+        @test mixed_pair ≈ mixed_expected
+
+        reversed_response = prepare_chromatic_bandpass(
+            band1, ChromaticBeam(reverse(ells), reverse(beam_mat1; dims=1))
+        )
+        shifted_grid_response = prepare_chromatic_bandpass(
+            band1, ChromaticBeam(ells .+ 1, beam_mat1)
+        )
+        @test_throws ArgumentError eval_component(
+            component, ells, reversed_response, band2, 2.0, 1.75;
+            alpha=-0.6
+        )
+        @test_throws ArgumentError eval_component(
+            component, ells, prepared1, shifted_grid_response, 2.0, 1.75;
+            alpha=-0.6
+        )
+        @test_throws ArgumentError eval_component(
+            mbb, RadioSED(150.0), component.angular, ells,
+            prepared1, shifted_grid_response, 2.0, (1.75,), (-0.7,);
+            alpha=-0.6
+        )
+        @test_throws ArgumentError correlation_power(
+            GeometricMeanCorrelation(), component, component, ells,
+            prepared1, shifted_grid_response, 0.1, 2.0, 3.0,
+            (1.75,), (1.75,);
+            comp1_angular_args=(alpha=-0.6,),
+            comp2_angular_args=(alpha=-0.6,)
+        )
+
         beta_loss = p -> sum(sed_weight(mbb, prepared1, p[1]))
         beta = [1.75]
         beta_fd = DI.gradient(beta_loss, AutoForwardDiff(), beta)
@@ -148,6 +188,55 @@ using JET
         @test_throws ArgumentError eval_chromatic_sed_bands(
             sed_fn, PreparedChromaticBandpass[]
         )
+        @test_throws DimensionMismatch eval_chromatic_sed_bands(
+            sed_fn, bands, [chrom_beam1]
+        )
+
+        joint_ells = collect(100:20:1080)
+        joint_beam1 = ChromaticBeam(
+            joint_ells,
+            [1.0 + 0.05 * (n - 145.0) / 20.0 * (l / 2000.0)
+             for l in joint_ells, n in nu]
+        )
+        joint_beam2_base = [1.0 + 0.04 * (n - 155.0) / 20.0 * (l / 2000.0)
+                            for l in joint_ells, n in nu]
+        joint_beam_direction = [((n - 155.0) / 20.0)^2 * (l / 2000.0)
+                                for l in joint_ells, n in nu]
+        joint_template = 1.0 .+ 1e-3 .* collect(0:1000)
+        joint_shape = TiltedTemplateShape(
+            TemplateShape(joint_template; ell_0=500, ell_min=100), 500.0
+        )
+        joint_component = SkyComponent(mbb, joint_shape)
+        raw2 = RawBand(nu, bp2)
+
+        function joint_loss(p)
+            active_band2 = shift_and_normalize(raw2, p[3])
+            active_beam2 = ChromaticBeam(
+                joint_ells, joint_beam2_base .+ p[4] .* joint_beam_direction
+            )
+            active_prepared = [
+                prepare_chromatic_bandpass(band1, joint_beam1),
+                prepare_chromatic_bandpass(active_band2, active_beam2),
+            ]
+            return sum(eval_component(joint_component, joint_ells,
+                                      active_prepared, p[1], p[2]; alpha=p[5]))
+        end
+
+        p0 = [2.0, 1.75, 0.0, 0.1, -0.6]
+        joint_fd = DI.gradient(joint_loss, AutoForwardDiff(), p0)
+        @test all(isfinite, joint_fd)
+        @test all(!iszero, joint_fd)
+        @test joint_fd ≈ DI.gradient(joint_loss, AutoZygote(), p0) rtol=1e-8
+
+        backend = AutoMooncake(config=nothing)
+        gradient_prep = DI.prepare_gradient(joint_loss, backend, p0)
+        joint_mc = similar(p0)
+        DI.gradient!(joint_loss, joint_mc, gradient_prep, backend, p0)
+        @test joint_fd ≈ joint_mc rtol=1e-6
+
+        p1 = [2.1, 1.8, 0.2, 0.15, -0.55]
+        DI.gradient!(joint_loss, joint_mc, gradient_prep, backend, p1)
+        @test DI.gradient(joint_loss, AutoForwardDiff(), p1) ≈ joint_mc rtol=1e-6
     end
 
     @testset "4. Shifted ACT reference cases" begin

@@ -152,6 +152,13 @@ end
 # 3. Polarization leakage map-response algebra                        #
 # ------------------------------------------------------------------ #
 
+@inline function _leakage(C_TT::AbstractVector,
+                          gamma::Union{Real, AbstractVector})
+    gamma isa AbstractVector && length(gamma) != length(C_TT) &&
+        throw(DimensionMismatch("leakage curve must have the same length as the spectrum"))
+    return gamma .* C_TT
+end
+
 """
     te_leakage(C_TT::AbstractVector, gamma_j::Union{Real, AbstractVector})
 
@@ -161,11 +168,8 @@ Compute the additive T -> E polarization leakage contribution to TE:
 ```
 where `gamma_j` is the leakage factor/curve for channel `j`.
 """
-@inline function te_leakage(C_TT::AbstractVector, gamma_j::Union{Real, AbstractVector})
-    gamma_j isa AbstractVector && length(gamma_j) != length(C_TT) &&
-        throw(DimensionMismatch("gamma_j must have the same length as C_TT"))
-    return gamma_j .* C_TT
-end
+@inline te_leakage(C_TT::AbstractVector, gamma_j::Union{Real, AbstractVector}) =
+    _leakage(C_TT, gamma_j)
 
 """
     et_leakage(C_TT::AbstractVector, gamma_i::Union{Real, AbstractVector})
@@ -176,11 +180,8 @@ Compute the additive T -> E polarization leakage contribution to ET:
 ```
 where `gamma_i` is the leakage factor/curve for channel `i`.
 """
-@inline function et_leakage(C_TT::AbstractVector, gamma_i::Union{Real, AbstractVector})
-    gamma_i isa AbstractVector && length(gamma_i) != length(C_TT) &&
-        throw(DimensionMismatch("gamma_i must have the same length as C_TT"))
-    return gamma_i .* C_TT
-end
+@inline et_leakage(C_TT::AbstractVector, gamma_i::Union{Real, AbstractVector}) =
+    _leakage(C_TT, gamma_i)
 
 """
     ee_leakage(C_TT::AbstractVector, C_TE_ij::AbstractVector, C_TE_ji::AbstractVector,

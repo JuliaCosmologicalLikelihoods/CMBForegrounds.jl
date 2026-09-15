@@ -353,20 +353,27 @@ Evaluate chromatic SED weights across an array of `Band`s and their correspondin
 Returns a 2D matrix of shape `(n_freq, n_ell)`.
 """
 function eval_chromatic_sed_bands(sed_fn, bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam})
+    prepared = _prepare_chromatic_bandpasses(bands, chromatic_beams)
+    return eval_chromatic_sed_bands(sed_fn, prepared)
+end
+
+function _prepare_chromatic_bandpasses(
+    bands::AbstractVector{<:AbstractBand},
+    chromatic_beams::AbstractVector{<:ChromaticBeam}
+)
+    Base.require_one_based_indexing(bands, chromatic_beams)
     n_freq = length(bands)
     n_freq > 0 || throw(ArgumentError("eval_chromatic_sed_bands: bands cannot be empty"))
-    @assert length(chromatic_beams) == n_freq "Number of bands and chromatic beams must match"
-
-    all(beam -> _same_multipole_grid(beam.ells, chromatic_beams[1].ells), chromatic_beams) ||
-        throw(ArgumentError("all chromatic beams must use the same multipole grid"))
-    responses = [integrate_chromatic_sed(sed_fn, bands[i], chromatic_beams[i])
-                 for i in eachindex(bands)]
-    return permutedims(reduce(hcat, responses))
+    length(chromatic_beams) == n_freq ||
+        throw(DimensionMismatch("number of bands and chromatic beams must match"))
+    return [prepare_chromatic_bandpass(bands[i], chromatic_beams[i])
+            for i in eachindex(bands)]
 end
 
 function eval_chromatic_sed_bands(
     sed_fn, prepared::AbstractVector{<:PreparedChromaticBandpass}
 )
+    Base.require_one_based_indexing(prepared)
     isempty(prepared) &&
         throw(ArgumentError("eval_chromatic_sed_bands: responses cannot be empty"))
     reference_ells = prepared[1].beam.ells

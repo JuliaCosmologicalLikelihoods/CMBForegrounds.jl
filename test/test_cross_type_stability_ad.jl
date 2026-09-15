@@ -338,3 +338,57 @@ end
     grad_mk = DI.gradient(g_TE, AutoMooncake(; config=nothing), v0)
     @test grad_fd ≈ grad_mk rtol=1e-10
 end
+
+
+@testset "Cross-spectrum dimension validation" begin
+    @test_throws DimensionMismatch factorized_cross(rand(2, 3), rand(4))
+    @test_throws DimensionMismatch factorized_cross_te(rand(2), rand(3), rand(4))
+    @test_throws DimensionMismatch factorized_cross_te(rand(2, 3), rand(3, 3), rand(3))
+    @test_throws DimensionMismatch factorized_cross_te(rand(2, 3), rand(2, 3), rand(4))
+
+    f = rand(2, 3)
+    @test_throws DimensionMismatch correlated_cross(f, rand(1, 1, 4))
+    @test_throws DimensionMismatch correlated_cross(f, rand(3, 3, 4))
+    @test_throws DimensionMismatch build_szxcib_cl(rand(3), rand(2), rand(3))
+    @test_throws DimensionMismatch build_szxcib_cl(rand(3), rand(3), rand(4))
+
+    frequency_vectors = ntuple(_ -> rand(2), 6)
+    angular_spectra = ntuple(_ -> rand(3), 7)
+    for index in 2:6, bad_length in (1, 3)
+        bad_frequency_vectors = Base.setindex(frequency_vectors, rand(bad_length), index)
+        @test_throws DimensionMismatch assemble_TT(
+            1.0, 1.0, 1.0, bad_frequency_vectors..., angular_spectra...
+        )
+    end
+    for index in 2:7, bad_length in (2, 4)
+        bad_angular_spectra = Base.setindex(angular_spectra, rand(bad_length), index)
+        @test_throws DimensionMismatch assemble_TT(
+            1.0, 1.0, 1.0, frequency_vectors..., bad_angular_spectra...
+        )
+    end
+
+    for bad_length in (1, 3)
+        @test_throws DimensionMismatch assemble_EE(
+            1.0, 1.0, rand(2), rand(bad_length), rand(3), rand(3)
+        )
+    end
+    for bad_length in (2, 4)
+        @test_throws DimensionMismatch assemble_EE(
+            1.0, 1.0, rand(2), rand(2), rand(3), rand(bad_length)
+        )
+    end
+
+    for index in 2:4, bad_length in (1, 3)
+        vectors = ntuple(_ -> rand(2), 4)
+        bad_vectors = Base.setindex(vectors, rand(bad_length), index)
+        @test_throws DimensionMismatch assemble_TE(
+            1.0, 1.0, bad_vectors..., rand(3), rand(3)
+        )
+    end
+    for bad_length in (2, 4)
+        @test_throws DimensionMismatch assemble_TE(
+            1.0, 1.0, rand(2), rand(2), rand(2), rand(2),
+            rand(3), rand(bad_length)
+        )
+    end
+end

@@ -93,9 +93,8 @@ end
 
 function ChainRulesCore.rrule(::typeof(factorized_cross),
                               F::AbstractMatrix{<:Real}, cl::AbstractVector{<:Real})
-    n_freq, n_ell = size(F)
-    @assert length(cl) == n_ell
     D = factorized_cross(F, cl)
+    n_freq, n_ell = size(F)
     project_F = ProjectTo(F)
     project_cl = ProjectTo(cl)
 
@@ -129,10 +128,8 @@ end
 function ChainRulesCore.rrule(::typeof(factorized_cross_te),
                               FT::AbstractMatrix{<:Real}, FE::AbstractMatrix{<:Real},
                               cl::AbstractVector{<:Real})
-    n_freq, n_ell = size(FT)
-    @assert size(FE) == (n_freq, n_ell)
-    @assert length(cl) == n_ell
     D = factorized_cross_te(FT, FE, cl)
+    n_freq, n_ell = size(FT)
     project_FT = ProjectTo(FT)
     project_FE = ProjectTo(FE)
     project_cl = ProjectTo(cl)
@@ -173,10 +170,9 @@ end
 function ChainRulesCore.rrule(::typeof(correlated_cross),
                               f::AbstractMatrix{<:Real},
                               cl::AbstractArray{<:Real,3})
+    D = correlated_cross(f, cl)
     n_comp, n_freq = size(f)
-    @assert size(cl, 1) == n_comp && size(cl, 2) == n_comp
     n_ell = size(cl, 3)
-    D     = correlated_cross(f, cl)
 
     function correlated_cross_pullback(D̄_thunked)
         D̄  = unthunk(D̄_thunked)

@@ -261,6 +261,17 @@ end
     return nothing
 end
 
+@inline _validate_leg_grid(
+    ::Union{Real, AbstractVector{<:Real}, AbstractBand}, ::AbstractVector
+) = nothing
+
+@inline function _validate_leg_grid(response::PreparedChromaticBandpass,
+                                    ells::AbstractVector)
+    _same_multipole_grid(response.beam.ells, ells) ||
+        throw(ArgumentError("prepared response multipoles must match ells"))
+    return nothing
+end
+
 @inline function _combine_component_weights(s1, s2, angular::AbstractAngularModel,
                                             ells::AbstractVector, amp::Real;
                                             angular_args...)
@@ -282,6 +293,8 @@ function eval_component(sed1::AbstractSED, sed2::AbstractSED, angular::AbstractA
                         nu2::Union{Real, AbstractVector{<:Real}, AbstractBand,
                                    PreparedChromaticBandpass},
                         amp::Real, sed1_args::Tuple=(), sed2_args::Tuple=(); angular_args...)
+    _validate_leg_grid(nu1, ells)
+    _validate_leg_grid(nu2, ells)
     s1 = sed_weight(sed1, nu1, sed1_args...)
     s2 = sed_weight(sed2, nu2, sed2_args...)
     return _combine_component_weights(s1, s2, angular, ells, amp; angular_args...)
@@ -297,7 +310,7 @@ Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` for an array o
 """
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
                         bands::AbstractVector{<:AbstractBand}, amp::Real, sed_args...; angular_args...)
-    f = [sed_weight(sed, b, sed_args...) for b in bands]
+    f = sed_weight(sed, bands, sed_args...)
     cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross(f, cl)
 end
@@ -310,11 +323,9 @@ Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` with chromatic
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
                         bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam},
                         amp::Real, sed_args...; angular_args...)
-    all(beam -> _same_multipole_grid(beam.ells, ells), chromatic_beams) ||
-        throw(ArgumentError("chromatic beam multipoles must match ells"))
-    F = eval_chromatic_sed_bands(ν -> sed_weight(sed, ν, sed_args...), bands, chromatic_beams)
-    cl = angular_power(angular, ells; amp=amp, angular_args...)
-    return factorized_cross(F, cl)
+    prepared = _prepare_chromatic_bandpasses(bands, chromatic_beams)
+    return eval_component(sed, angular, ells, prepared, amp, sed_args...;
+                          angular_args...)
 end
 
 function eval_component(
@@ -337,8 +348,8 @@ Evaluate full frequency-cross 3D tensor `(n_freq, n_freq, n_ell)` for TE polariz
 function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
                            bandsT::AbstractVector{<:AbstractBand}, bandsE::AbstractVector{<:AbstractBand}, amp::Real,
                            sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...)
-    fT = [sed_weight(sedT, b, sedT_args...) for b in bandsT]
-    fE = [sed_weight(sedE, b, sedE_args...) for b in bandsE]
+    fT = sed_weight(sedT, bandsT, sedT_args...)
+    fE = sed_weight(sedE, bandsE, sedE_args...)
     cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross_te(fT, fE, cl)
 end
@@ -352,14 +363,10 @@ function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::Abstra
                            bandsT::AbstractVector{<:AbstractBand}, beamsT::AbstractVector{<:ChromaticBeam},
                            bandsE::AbstractVector{<:AbstractBand}, beamsE::AbstractVector{<:ChromaticBeam},
                            amp::Real, sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...)
-    all(beam -> _same_multipole_grid(beam.ells, ells), beamsT) ||
-        throw(ArgumentError("temperature chromatic beam multipoles must match ells"))
-    all(beam -> _same_multipole_grid(beam.ells, ells), beamsE) ||
-        throw(ArgumentError("polarization chromatic beam multipoles must match ells"))
-    FT = eval_chromatic_sed_bands(ν -> sed_weight(sedT, ν, sedT_args...), bandsT, beamsT)
-    FE = eval_chromatic_sed_bands(ν -> sed_weight(sedE, ν, sedE_args...), bandsE, beamsE)
-    cl = angular_power(angular, ells; amp=amp, angular_args...)
-    return factorized_cross_te(FT, FE, cl)
+    preparedT = _prepare_chromatic_bandpasses(bandsT, beamsT)
+    preparedE = _prepare_chromatic_bandpasses(bandsE, beamsE)
+    return eval_component_te(sedT, sedE, angular, ells, preparedT, preparedE,
+                             amp, sedT_args, sedE_args; angular_args...)
 end
 
 function eval_component_te(

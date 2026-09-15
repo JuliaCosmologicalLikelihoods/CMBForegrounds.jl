@@ -14,6 +14,13 @@ All are pure functions — no mutation — compatible with ForwardDiff and Moonc
 # D[i,j,ℓ] = f[i] · f[j] · Cl[ℓ]                                     #
 # ------------------------------------------------------------------ #
 
+@inline function _require_lengths(expected::Integer, description::AbstractString,
+                                  arrays...)
+    all(array -> length(array) == expected, arrays) ||
+        throw(DimensionMismatch("all $description must have length $expected"))
+    return nothing
+end
+
 """
     factorized_cross(f, cl)
 
@@ -54,7 +61,8 @@ Returns array of shape (n_freq, n_freq, n_ell).
 function factorized_cross(F::AbstractMatrix{<:Real}, cl::AbstractVector{<:Real})
     Base.require_one_based_indexing(F, cl)
     n_freq, n_ell = size(F)
-    @assert length(cl) == n_ell "factorized_cross: cl length must match F second dimension (n_ell)"
+    length(cl) == n_ell ||
+        throw(DimensionMismatch("cl length must match the second dimension of F"))
     F_i = reshape(F, n_freq, 1, n_ell)
     F_j = reshape(F, 1, n_freq, n_ell)
     cl_3d = reshape(cl, 1, 1, n_ell)
@@ -86,6 +94,8 @@ function factorized_cross_te(fT::AbstractVector{<:Real}, fE::AbstractVector{<:Re
     Base.require_one_based_indexing(fT, fE, cl)
     n_freq = length(fT)
     n_ell  = length(cl)
+    length(fE) == n_freq ||
+        throw(DimensionMismatch("fT and fE must have the same length"))
     outer  = fT .* fE'                                     # (n_freq, n_freq)
     return reshape(outer, n_freq, n_freq, 1) .* reshape(cl, 1, 1, n_ell)
 end
@@ -108,8 +118,10 @@ function factorized_cross_te(FT::AbstractMatrix{<:Real}, FE::AbstractMatrix{<:Re
                              cl::AbstractVector{<:Real})
     Base.require_one_based_indexing(FT, FE, cl)
     n_freq, n_ell = size(FT)
-    @assert size(FE) == (n_freq, n_ell) "factorized_cross_te: FE shape must match FT shape"
-    @assert length(cl) == n_ell "factorized_cross_te: cl length must match FT second dimension (n_ell)"
+    size(FE) == (n_freq, n_ell) ||
+        throw(DimensionMismatch("FE shape must match FT shape"))
+    length(cl) == n_ell ||
+        throw(DimensionMismatch("cl length must match the second dimension of FT"))
     FT_i = reshape(FT, n_freq, 1, n_ell)
     FE_j = reshape(FE, 1, n_freq, n_ell)
     cl_3d = reshape(cl, 1, 1, n_ell)
@@ -144,6 +156,8 @@ Matches `CorrelatedFactorizedCrossSpectrum` in fgspectra/cross.py.
 function correlated_cross(f::AbstractMatrix{<:Real}, cl::AbstractArray{<:Real,3})
     Base.require_one_based_indexing(f, cl)
     n_comp, n_freq = size(f)
+    size(cl, 1) == n_comp && size(cl, 2) == n_comp ||
+        throw(DimensionMismatch("cl component dimensions must match the first dimension of f"))
     n_ell          = size(cl, 3)
     # Pure sum — no mutation — compatible with ForwardDiff and Mooncake
     return sum(
@@ -175,6 +189,7 @@ function build_szxcib_cl(cl_tsz::AbstractVector{<:Real},
                          cl_cross::AbstractVector{<:Real})
     Base.require_one_based_indexing(cl_tsz, cl_cibc, cl_cross)
     n_ell = length(cl_tsz)
+    _require_lengths(n_ell, "component spectra", cl_cibc, cl_cross)
     # Pure construction — no mutation — compatible with ForwardDiff and Mooncake
     layer11 = reshape(cl_tsz,  1, 1, n_ell)
     layer12 = reshape(cl_cross, 1, 1, n_ell)
@@ -223,6 +238,10 @@ function assemble_TT(a_p::Real, a_gtt::Real, a_s::Real,
                                     cl_szxcib)
     n_freq = length(f_ksz)
     n_ell  = length(cl_ksz)
+    _require_lengths(n_freq, "frequency vectors", f_cibp, f_dust, f_radio,
+                     f_tsz, f_cibc)
+    _require_lengths(n_ell, "angular spectra", cl_cibp, cl_dustT, cl_radio,
+                     cl_tsz, cl_cibc, cl_szxcib)
     T = promote_type(typeof(a_p), typeof(a_gtt), typeof(a_s),
                      eltype(f_ksz), eltype(f_cibp), eltype(f_dust), eltype(f_radio),
                      eltype(f_tsz), eltype(f_cibc),
@@ -267,6 +286,8 @@ function assemble_EE(a_psee::Real, a_gee::Real,
     Base.require_one_based_indexing(f_radio_P, f_dust_P, cl_radio, cl_dustE)
     n_freq = length(f_radio_P)
     n_ell  = length(cl_radio)
+    _require_lengths(n_freq, "frequency vectors", f_dust_P)
+    _require_lengths(n_ell, "angular spectra", cl_dustE)
     T = promote_type(typeof(a_psee), typeof(a_gee),
                      eltype(f_radio_P), eltype(f_dust_P),
                      eltype(cl_radio), eltype(cl_dustE))
@@ -305,6 +326,8 @@ function assemble_TE(a_pste::Real, a_gte::Real,
                                     f_dust_P, cl_radio, cl_dustE)
     n_freq = length(f_radio_T)
     n_ell  = length(cl_radio)
+    _require_lengths(n_freq, "frequency vectors", f_radio_P, f_dust_T, f_dust_P)
+    _require_lengths(n_ell, "angular spectra", cl_dustE)
     T = promote_type(typeof(a_pste), typeof(a_gte),
                      eltype(f_radio_T), eltype(f_radio_P),
                      eltype(f_dust_T),  eltype(f_dust_P),
