@@ -279,9 +279,10 @@ D_\\ell^{\\mathrm{tSZ}\\times\\mathrm{CIB}} =
 where ``g(\\nu) = `` [`tsz_g_ratio`](@ref) and ``s(\\nu) = `` [`cib_mbb_sed_weight`](@ref).
 
 The `abs` inside the square root mirrors the guard already in
-[`tsz_cib_cross_power`](@ref); it keeps the gradient finite at the prior
-boundary (A → 0) and avoids `DomainError` when an HMC leapfrog step proposes a
-transient negative amplitude.
+[`tsz_cib_cross_power`](@ref) and avoids `DomainError` when an HMC leapfrog step
+proposes a transient negative amplitude. The square-root derivative is not
+finite at zero amplitude; priors or the likelihood parameterization must handle
+that boundary.
 
 This is the template-based variant of [`tsz_cib_cross_power`](@ref) (which uses
 the auto-cross sqrt form). Used directly by the Planck PR4 Hillipop likelihood.
@@ -474,9 +475,10 @@ function dCl_dell_from_Dl(ℓs::AbstractVector, Dℓ::AbstractVector)
         for i in 2:n-1
             h_prev = ℓs[i] - ℓs[i-1]
             h_next = ℓs[i+1] - ℓs[i]
-            dCℓ[i] = -h_next * Cℓ[i-1] / (h_prev * (h_prev + h_next)) +
-                      (h_next - h_prev) * Cℓ[i] / (h_prev * h_next) +
-                      h_prev * Cℓ[i+1] / (h_next * (h_prev + h_next))
+            slope_prev = (Cℓ[i] - Cℓ[i-1]) / h_prev
+            slope_next = (Cℓ[i+1] - Cℓ[i]) / h_next
+            dCℓ[i] = (h_next * slope_prev + h_prev * slope_next) /
+                      (h_prev + h_next)
         end
 
         dCℓ[1] = dCℓ[2]

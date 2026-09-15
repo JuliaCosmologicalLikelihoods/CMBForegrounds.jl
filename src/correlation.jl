@@ -87,13 +87,15 @@ function correlation_power end
 # TemplateCorrelation evaluator
 @inline function correlation_power(corr::TemplateCorrelation, ells::AbstractVector,
                                    xi::Real, A1::Real, A2::Real,
-                                   f1_1::Union{Real, AbstractVector},
-                                   f1_2::Union{Real, AbstractVector},
-                                   f2_1::Union{Real, AbstractVector},
-                                   f2_2::Union{Real, AbstractVector}; angular_args...)
+                                   f1_1::Union{Real, AbstractVector{<:Real}},
+                                   f1_2::Union{Real, AbstractVector{<:Real}},
+                                   f2_1::Union{Real, AbstractVector{<:Real}},
+                                   f2_2::Union{Real, AbstractVector{<:Real}}; angular_args...)
     n_ell = length(ells)
-    all(f isa Real || length(f) == n_ell for f in (f1_1, f1_2, f2_1, f2_2)) ||
-        throw(DimensionMismatch("vector-valued SED factors must have length equal to ells"))
+    _validate_spectrum_weight(f1_1, n_ell)
+    _validate_spectrum_weight(f1_2, n_ell)
+    _validate_spectrum_weight(f2_1, n_ell)
+    _validate_spectrum_weight(f2_2, n_ell)
     T_ell = angular_power(corr.shape, ells; angular_args...)
     amplitude = -xi * sqrt(abs(A1 * A2))
     return @. amplitude * (f1_1 * f2_2 + f1_2 * f2_1) * T_ell
@@ -111,8 +113,8 @@ end
 # GeometricMeanCorrelation evaluator from pre-computed autos
 @inline function correlation_power(::GeometricMeanCorrelation, ells::AbstractVector,
                                    xi::Real,
-                                   D1_11::AbstractVector, D1_22::AbstractVector,
-                                   D2_11::AbstractVector, D2_22::AbstractVector)
+                                   D1_11::AbstractVector{<:Real}, D1_22::AbstractVector{<:Real},
+                                   D2_11::AbstractVector{<:Real}, D2_22::AbstractVector{<:Real})
     n_ell = length(ells)
     all(length(D) == n_ell for D in (D1_11, D1_22, D2_11, D2_22)) ||
         throw(DimensionMismatch("all auto-spectra must have length equal to ells"))

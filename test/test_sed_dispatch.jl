@@ -263,9 +263,17 @@ CMBForegrounds.sed_weight(::TestPowerSED, nu::Real, beta::Real) = (nu / 150.0)^b
         @test_throws ArgumentError make_band([NaN], [1.0])
         @test_throws ArgumentError make_band([140.0, 150.0], [1.0, Inf])
         @test_throws DomainError make_band([140.0, 150.0], zeros(2))
+        @test_throws DomainError make_band([150.0], [0.0])
         @test_throws ArgumentError RawBand(Float64[], Float64[])
         @test_throws DimensionMismatch RawBand([140.0, 150.0], [1.0])
         @test_throws ArgumentError RawBand([150.0, 140.0], ones(2))
+        inferred_raw = RawBand([140.0, 150.0], ones(2))
+        explicit_raw = RawBand{Float64}(Float32[140, 150], Float32[1, 1])
+        @test explicit_raw.nu == inferred_raw.nu
+        @test explicit_raw.bp == inferred_raw.bp
+        singleton = make_band([150.0], [2.0])
+        @test singleton.norm_bp == [1.0]
+        @test integrate_sed(identity, singleton) == 150.0
         @test_throws ArgumentError eval_sed_bands(identity, AbstractBand[])
         zero_beam = ChromaticBeam([100, 200], zeros(2, length(band.nu)))
         @test_throws DomainError sed_weight(sed, band, zero_beam, beta)

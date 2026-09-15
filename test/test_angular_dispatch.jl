@@ -73,11 +73,9 @@ using Random
         # At ell=2: 2*3/(3000*3001) vs 4/(3000^2)
         # Ratio: (6/9003000) / (4/9000000) = (6/4) * (9000/9003) = 1.5 * 0.99967 ≈ 1.4995 (~50% difference!)
         @test res_poisson[1] / res_ell2[1] ≈ 1.5 atol=1e-3
-        # At ell=3000: 3000*3001 / (3000*3001) = 1, while (3000/3000)^2 = 1
-        idx_3000 = findfirst(==(3000), ells_vec)
-        if idx_3000 !== nothing
-            @test res_poisson[idx_3000] ≈ res_ell2[idx_3000] ≈ amp
-        end
+        # At ell=3000 both normalized shapes equal the pivot amplitude.
+        @test angular_power(poisson, [3000]; amp=amp)[1] ≈
+              angular_power(p_ell2, [3000], 2.0; amp=amp)[1] ≈ amp
 
         # Type stability
         JET.@test_opt angular_power(poisson, ells_vec; amp=amp)

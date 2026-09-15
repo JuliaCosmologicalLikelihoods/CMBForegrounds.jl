@@ -27,7 +27,7 @@ using LinearAlgebra: dot, transpose
 # ------------------------------------------------------------------ #
 
 function ChainRulesCore.rrule(::typeof(factorized_cross),
-                              f::AbstractVector, cl::AbstractVector)
+                              f::AbstractVector{<:Real}, cl::AbstractVector{<:Real})
     n_freq = length(f)
     n_ell  = length(cl)
     D      = factorized_cross(f, cl)
@@ -56,9 +56,9 @@ end
 # ------------------------------------------------------------------ #
 
 function ChainRulesCore.rrule(::typeof(factorized_cross_te),
-                              fT::AbstractVector,
-                              fE::AbstractVector,
-                              cl::AbstractVector)
+                              fT::AbstractVector{<:Real},
+                              fE::AbstractVector{<:Real},
+                              cl::AbstractVector{<:Real})
     n_freq = length(fT)
     @assert length(fE) == n_freq
     n_ell  = length(cl)
@@ -92,7 +92,7 @@ end
 # ------------------------------------------------------------------ #
 
 function ChainRulesCore.rrule(::typeof(factorized_cross),
-                              F::AbstractMatrix, cl::AbstractVector)
+                              F::AbstractMatrix{<:Real}, cl::AbstractVector{<:Real})
     n_freq, n_ell = size(F)
     @assert length(cl) == n_ell
     D = factorized_cross(F, cl)
@@ -102,16 +102,17 @@ function ChainRulesCore.rrule(::typeof(factorized_cross),
     function factorized_cross_matrix_pullback(D̄_thunked)
         D̄ = unthunk(D̄_thunked)
         T = promote_type(eltype(D̄), eltype(F), eltype(cl))
-        dF̄  = Matrix{T}(undef, size(F))
-        dcl̄ = Vector{T}(undef, length(cl))
+        dF̄  = zeros(T, size(F))
+        dcl̄ = zeros(T, length(cl))
 
         @inbounds for ℓ in 1:n_ell
             cl_ℓ = cl[ℓ]
-            F_ℓ  = @view F[:, ℓ]
-            D̄_ℓ  = @view D̄[:, :, ℓ]
-
-            dF̄[:, ℓ] = ((D̄_ℓ + transpose(D̄_ℓ)) * F_ℓ) .* cl_ℓ
-            dcl̄[ℓ] = dot(F_ℓ, D̄_ℓ * F_ℓ)
+            for j in 1:n_freq, i in 1:n_freq
+                weight = D̄[i, j, ℓ]
+                dF̄[i, ℓ] += cl_ℓ * weight * F[j, ℓ]
+                dF̄[j, ℓ] += cl_ℓ * weight * F[i, ℓ]
+                dcl̄[ℓ] += weight * F[i, ℓ] * F[j, ℓ]
+            end
         end
 
         return NoTangent(), project_F(dF̄), project_cl(dcl̄)
@@ -126,7 +127,8 @@ end
 # ------------------------------------------------------------------ #
 
 function ChainRulesCore.rrule(::typeof(factorized_cross_te),
-                              FT::AbstractMatrix, FE::AbstractMatrix, cl::AbstractVector)
+                              FT::AbstractMatrix{<:Real}, FE::AbstractMatrix{<:Real},
+                              cl::AbstractVector{<:Real})
     n_freq, n_ell = size(FT)
     @assert size(FE) == (n_freq, n_ell)
     @assert length(cl) == n_ell
@@ -139,19 +141,18 @@ function ChainRulesCore.rrule(::typeof(factorized_cross_te),
         D̄ = unthunk(D̄_thunked)
 
         T = promote_type(eltype(D̄), eltype(FT), eltype(FE), eltype(cl))
-        dFT̄ = Matrix{T}(undef, size(FT))
-        dFĒ = Matrix{T}(undef, size(FE))
-        dcl̄ = Vector{T}(undef, length(cl))
+        dFT̄ = zeros(T, size(FT))
+        dFĒ = zeros(T, size(FE))
+        dcl̄ = zeros(T, length(cl))
 
         @inbounds for ℓ in 1:n_ell
             cl_ℓ = cl[ℓ]
-            FT_ℓ = @view FT[:, ℓ]
-            FE_ℓ = @view FE[:, ℓ]
-            D̄_ℓ  = @view D̄[:, :, ℓ]
-
-            dFT̄[:, ℓ] = (D̄_ℓ * FE_ℓ) .* cl_ℓ
-            dFĒ[:, ℓ] = (transpose(D̄_ℓ) * FT_ℓ) .* cl_ℓ
-            dcl̄[ℓ] = dot(FT_ℓ, D̄_ℓ * FE_ℓ)
+            for j in 1:n_freq, i in 1:n_freq
+                weight = D̄[i, j, ℓ]
+                dFT̄[i, ℓ] += cl_ℓ * weight * FE[j, ℓ]
+                dFĒ[j, ℓ] += cl_ℓ * weight * FT[i, ℓ]
+                dcl̄[ℓ] += weight * FT[i, ℓ] * FE[j, ℓ]
+            end
         end
 
         return NoTangent(), project_FT(dFT̄), project_FE(dFĒ), project_cl(dcl̄)
@@ -170,8 +171,8 @@ end
 # ------------------------------------------------------------------ #
 
 function ChainRulesCore.rrule(::typeof(correlated_cross),
-                              f::AbstractMatrix,
-                              cl::AbstractArray{<:Any,3})
+                              f::AbstractMatrix{<:Real},
+                              cl::AbstractArray{<:Real,3})
     n_comp, n_freq = size(f)
     @assert size(cl, 1) == n_comp && size(cl, 2) == n_comp
     n_ell = size(cl, 3)
@@ -205,26 +206,25 @@ end
 # assemble_TT — fused TT-spectrum rrule                                #
 # ------------------------------------------------------------------ #
 
-function _factorized_term_grads!(D̄_flat::AbstractMatrix, cl::AbstractVector,
-                                  f::AbstractVector, α::Real)
-    # Returns (M, d_α, d_f, d_cl) for the term: α · f[i] · f[j] · cl[ℓ]
+function _factorized_term_grads(D̄_flat::AbstractMatrix, cl::AbstractVector,
+                                f::AbstractVector, α::Real)
     n = length(f)
     M = reshape(D̄_flat * cl, n, n)
     d_α = dot(f, M, f)
     d_f = α * ((M + transpose(M)) * f)
     d_cl = α * (transpose(D̄_flat) * vec(f * transpose(f)))
-    return M, d_α, d_f, d_cl
+    return d_α, d_f, d_cl
 end
 
 function ChainRulesCore.rrule(::typeof(assemble_TT),
                               a_p::Real, a_gtt::Real, a_s::Real,
-                              f_ksz::AbstractVector,   f_cibp::AbstractVector,
-                              f_dust::AbstractVector,  f_radio::AbstractVector,
-                              f_tsz::AbstractVector,   f_cibc::AbstractVector,
-                              cl_ksz::AbstractVector,  cl_cibp::AbstractVector,
-                              cl_dustT::AbstractVector, cl_radio::AbstractVector,
-                              cl_tsz::AbstractVector,  cl_cibc::AbstractVector,
-                              cl_szxcib::AbstractVector)
+                              f_ksz::AbstractVector{<:Real},   f_cibp::AbstractVector{<:Real},
+                              f_dust::AbstractVector{<:Real},  f_radio::AbstractVector{<:Real},
+                              f_tsz::AbstractVector{<:Real},   f_cibc::AbstractVector{<:Real},
+                              cl_ksz::AbstractVector{<:Real},  cl_cibp::AbstractVector{<:Real},
+                              cl_dustT::AbstractVector{<:Real}, cl_radio::AbstractVector{<:Real},
+                              cl_tsz::AbstractVector{<:Real},  cl_cibc::AbstractVector{<:Real},
+                              cl_szxcib::AbstractVector{<:Real})
     n_freq = length(f_ksz)
     n_ell  = length(cl_ksz)
     D = assemble_TT(a_p, a_gtt, a_s,
@@ -242,9 +242,9 @@ function ChainRulesCore.rrule(::typeof(assemble_TT),
         d_cl_ksz = transpose(D̄_flat) * vec(f_ksz * transpose(f_ksz))
 
         # Standard factorized terms (α explicit)
-        _, d_a_p,   d_f_cibp,  d_cl_cibp  = _factorized_term_grads!(D̄_flat, cl_cibp,  f_cibp,  a_p)
-        _, d_a_gtt, d_f_dust,  d_cl_dustT = _factorized_term_grads!(D̄_flat, cl_dustT, f_dust,  a_gtt)
-        _, d_a_s,   d_f_radio, d_cl_radio = _factorized_term_grads!(D̄_flat, cl_radio, f_radio, a_s)
+        d_a_p,   d_f_cibp,  d_cl_cibp  = _factorized_term_grads(D̄_flat, cl_cibp,  f_cibp,  a_p)
+        d_a_gtt, d_f_dust,  d_cl_dustT = _factorized_term_grads(D̄_flat, cl_dustT, f_dust,  a_gtt)
+        d_a_s,   d_f_radio, d_cl_radio = _factorized_term_grads(D̄_flat, cl_radio, f_radio, a_s)
 
         # tSZ auto: f_tsz f_tsz' cl_tsz   (α = 1)
         M_tsz = reshape(D̄_flat * cl_tsz, n_freq, n_freq)
@@ -283,8 +283,10 @@ end
 
 function ChainRulesCore.rrule(::typeof(assemble_EE),
                               a_psee::Real, a_gee::Real,
-                              f_radio_P::AbstractVector, f_dust_P::AbstractVector,
-                              cl_radio::AbstractVector,  cl_dustE::AbstractVector)
+                              f_radio_P::AbstractVector{<:Real},
+                              f_dust_P::AbstractVector{<:Real},
+                              cl_radio::AbstractVector{<:Real},
+                              cl_dustE::AbstractVector{<:Real})
     n_freq = length(f_radio_P)
     n_ell  = length(cl_radio)
     D = assemble_EE(a_psee, a_gee, f_radio_P, f_dust_P, cl_radio, cl_dustE)
@@ -293,10 +295,10 @@ function ChainRulesCore.rrule(::typeof(assemble_EE),
         D̄ = unthunk(D̄_thunked)
         D̄_flat = reshape(D̄, n_freq * n_freq, n_ell)
 
-        _, d_a_psee, d_f_radio_P, d_cl_radio =
-            _factorized_term_grads!(D̄_flat, cl_radio, f_radio_P, a_psee)
-        _, d_a_gee,  d_f_dust_P,  d_cl_dustE =
-            _factorized_term_grads!(D̄_flat, cl_dustE, f_dust_P,  a_gee)
+        d_a_psee, d_f_radio_P, d_cl_radio =
+            _factorized_term_grads(D̄_flat, cl_radio, f_radio_P, a_psee)
+        d_a_gee,  d_f_dust_P,  d_cl_dustE =
+            _factorized_term_grads(D̄_flat, cl_dustE, f_dust_P,  a_gee)
 
         return (NoTangent(),
                 d_a_psee, d_a_gee,
@@ -324,9 +326,12 @@ end
 
 function ChainRulesCore.rrule(::typeof(assemble_TE),
                               a_pste::Real, a_gte::Real,
-                              f_radio_T::AbstractVector, f_radio_P::AbstractVector,
-                              f_dust_T::AbstractVector,  f_dust_P::AbstractVector,
-                              cl_radio::AbstractVector,  cl_dustE::AbstractVector)
+                              f_radio_T::AbstractVector{<:Real},
+                              f_radio_P::AbstractVector{<:Real},
+                              f_dust_T::AbstractVector{<:Real},
+                              f_dust_P::AbstractVector{<:Real},
+                              cl_radio::AbstractVector{<:Real},
+                              cl_dustE::AbstractVector{<:Real})
     n_freq = length(f_radio_T)
     n_ell  = length(cl_radio)
     D = assemble_TE(a_pste, a_gte,

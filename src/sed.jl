@@ -160,10 +160,6 @@ function sed_weight end
     return cib_mbb_sed_weight(beta, sed.T_dust, sed.nu_0, nu; T_CMB=sed.T_CMB)
 end
 
-@inline function sed_weight(sed::ModifiedBlackbodySED, nu::AbstractVector{<:Real}, beta::Real)
-    return cib_mbb_sed_weight.(beta, sed.T_dust, sed.nu_0, nu; T_CMB=sed.T_CMB)
-end
-
 # RadioSED
 @inline function sed_weight(sed::RadioSED, nu::Real, beta::Real)
     if sed.convention === :flux
@@ -173,20 +169,8 @@ end
     end
 end
 
-@inline function sed_weight(sed::RadioSED, nu::AbstractVector{<:Real}, beta::Real)
-    if sed.convention === :flux
-        return _radio_sed_ratio.(nu, sed.nu_0, beta, sed.T_CMB)
-    else
-        return radio_sed(nu, sed.nu_0, beta, sed.T_CMB)
-    end
-end
-
 # ThermalSZSED
 @inline function sed_weight(sed::ThermalSZSED, nu::Real)
-    return tsz_sed(nu, sed.nu_0, sed.T_CMB)
-end
-
-@inline function sed_weight(sed::ThermalSZSED, nu::AbstractVector{<:Real})
     return tsz_sed(nu, sed.nu_0, sed.T_CMB)
 end
 
@@ -203,11 +187,12 @@ end
 
 # ConstantSED
 @inline sed_weight(::ConstantSED, nu::Real) = one(nu)
-@inline sed_weight(::ConstantSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
-
 # NoSED
 @inline sed_weight(::NoSED, nu::Real) = one(nu)
-@inline sed_weight(::NoSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
+
+@inline function sed_weight(sed::AbstractSED, nu::AbstractVector{<:Real}, args...)
+    return map(value -> sed_weight(sed, value, args...), nu)
+end
 
 # Generic scalar-SED lifting to a tabulated band.
 @inline function sed_weight(sed::AbstractSED, band::Band, args...)
@@ -219,8 +204,9 @@ end
     return integrate_chromatic_sed(ν -> sed_weight(sed, ν, args...), band, chromatic_beam)
 end
 
-@inline function sed_weight(sed::Union{ConstantSED, NoSED}, band::Band)
-    return integrate_sed(ν -> sed_weight(sed, ν), band)
+@inline function sed_weight(sed::AbstractSED,
+                            prepared::PreparedChromaticBandpass, args...)
+    return integrate_chromatic_sed(ν -> sed_weight(sed, ν, args...), prepared)
 end
 
 # Collection of Bands helper
@@ -234,6 +220,14 @@ end
     return eval_chromatic_sed_bands(fn, bands, chromatic_beams)
 end
 
+
+@inline function sed_weight(
+    sed::AbstractSED,
+    prepared::AbstractVector{<:PreparedChromaticBandpass}, args...
+)
+    return eval_chromatic_sed_bands(ν -> sed_weight(sed, ν, args...), prepared)
+end
+
 # ------------------------------------------------------------------ #
 # Foreground component composition helpers                            #
 # ------------------------------------------------------------------ #
@@ -242,31 +236,39 @@ end
     eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells, nu1, nu2, amp, sed_args...; angular_args...)
 
 Evaluate a single cross-spectrum ``D_\\ell(\\nu_1, \\nu_2)`` for a physical component.
-Each frequency leg may be a scalar frequency, a vector of frequencies, or an
-`AbstractBand`:
+Each frequency leg may be a scalar frequency, a vector of frequencies, an
+`AbstractBand`, or a `PreparedChromaticBandpass`:
 ```math
 D_\\ell = \\mathrm{amp} \\cdot S(\\nu_1) \\cdot S(\\nu_2) \\cdot D_\\ell^\\mathrm{ang}
 ```
 """
-function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand},
-                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand},
+function eval_component(sed::AbstractSED, angular::AbstractAngularModel,
+                        ells::AbstractVector,
+                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand,
+                                   PreparedChromaticBandpass},
+                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand,
+                                   PreparedChromaticBandpass},
                         amp::Real, sed_args...; angular_args...)
-    s1 = sed_weight(sed, nu1, sed_args...)
-    s2 = sed_weight(sed, nu2, sed_args...)
-    n_ell = length(ells)
-    (s1 isa Real || length(s1) == n_ell) &&
-        (s2 isa Real || length(s2) == n_ell) ||
-        throw(DimensionMismatch("vector-valued SED weights must have length equal to ells"))
-    ang = angular_power(angular, ells; amp=amp, angular_args...)
-    return @. (s1 * s2) * ang
+    return eval_component(sed, sed, angular, ells, nu1, nu2, amp,
+                          sed_args, sed_args; angular_args...)
 end
 
-function eval_component(comp::SkyComponent, ells::AbstractVector,
-                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand},
-                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand},
-                        amp::Real, sed_args...; angular_args...)
-    return eval_component(comp.sed, comp.angular, ells, nu1, nu2, amp, sed_args...; angular_args...)
+@inline _validate_spectrum_weight(::Real, ::Integer) = nothing
+
+@inline function _validate_spectrum_weight(weight::AbstractVector, n_ell::Integer)
+    length(weight) == n_ell ||
+        throw(DimensionMismatch("vector-valued SED weights must have length equal to ells"))
+    return nothing
+end
+
+@inline function _combine_component_weights(s1, s2, angular::AbstractAngularModel,
+                                            ells::AbstractVector, amp::Real;
+                                            angular_args...)
+    n_ell = length(ells)
+    _validate_spectrum_weight(s1, n_ell)
+    _validate_spectrum_weight(s2, n_ell)
+    shape = angular_power(angular, ells; amp=amp, angular_args...)
+    return @. s1 * s2 * shape
 end
 
 """
@@ -275,18 +277,18 @@ end
 Evaluate a cross-spectrum with different SED properties on leg 1 and leg 2 (e.g. TE or distinct map emissivities).
 """
 function eval_component(sed1::AbstractSED, sed2::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand},
-                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand},
+                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand,
+                                   PreparedChromaticBandpass},
+                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand,
+                                   PreparedChromaticBandpass},
                         amp::Real, sed1_args::Tuple=(), sed2_args::Tuple=(); angular_args...)
     s1 = sed_weight(sed1, nu1, sed1_args...)
     s2 = sed_weight(sed2, nu2, sed2_args...)
-    n_ell = length(ells)
-    (s1 isa Real || length(s1) == n_ell) &&
-        (s2 isa Real || length(s2) == n_ell) ||
-        throw(DimensionMismatch("vector-valued SED weights must have length equal to ells"))
-    ang = angular_power(angular, ells; amp=amp, angular_args...)
-    return @. (s1 * s2) * ang
+    return _combine_component_weights(s1, s2, angular, ells, amp; angular_args...)
 end
+
+@inline eval_component(comp::SkyComponent, args...; kwargs...) =
+    eval_component(comp.sed, comp.angular, args...; kwargs...)
 
 """
     eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells, bands, amp, sed_args...; angular_args...)
@@ -298,11 +300,6 @@ function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::A
     f = [sed_weight(sed, b, sed_args...) for b in bands]
     cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross(f, cl)
-end
-
-function eval_component(comp::SkyComponent, ells::AbstractVector,
-                        bands::AbstractVector{<:AbstractBand}, amp::Real, sed_args...; angular_args...)
-    return eval_component(comp.sed, comp.angular, ells, bands, amp, sed_args...; angular_args...)
 end
 
 """
@@ -320,10 +317,16 @@ function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::A
     return factorized_cross(F, cl)
 end
 
-function eval_component(comp::SkyComponent, ells::AbstractVector,
-                        bands::AbstractVector{<:AbstractBand}, chromatic_beams::AbstractVector{<:ChromaticBeam},
-                        amp::Real, sed_args...; angular_args...)
-    return eval_component(comp.sed, comp.angular, ells, bands, chromatic_beams, amp, sed_args...; angular_args...)
+function eval_component(
+    sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
+    prepared::AbstractVector{<:PreparedChromaticBandpass}, amp::Real,
+    sed_args...; angular_args...
+)
+    all(response -> _same_multipole_grid(response.beam.ells, ells), prepared) ||
+        throw(ArgumentError("prepared response multipoles must match ells"))
+    F = sed_weight(sed, prepared, sed_args...)
+    cl = angular_power(angular, ells; amp=amp, angular_args...)
+    return factorized_cross(F, cl)
 end
 
 """
@@ -355,6 +358,23 @@ function eval_component_te(sedT::AbstractSED, sedE::AbstractSED, angular::Abstra
         throw(ArgumentError("polarization chromatic beam multipoles must match ells"))
     FT = eval_chromatic_sed_bands(ν -> sed_weight(sedT, ν, sedT_args...), bandsT, beamsT)
     FE = eval_chromatic_sed_bands(ν -> sed_weight(sedE, ν, sedE_args...), bandsE, beamsE)
+    cl = angular_power(angular, ells; amp=amp, angular_args...)
+    return factorized_cross_te(FT, FE, cl)
+end
+
+function eval_component_te(
+    sedT::AbstractSED, sedE::AbstractSED, angular::AbstractAngularModel,
+    ells::AbstractVector,
+    preparedT::AbstractVector{<:PreparedChromaticBandpass},
+    preparedE::AbstractVector{<:PreparedChromaticBandpass}, amp::Real,
+    sedT_args::Tuple=(), sedE_args::Tuple=(); angular_args...
+)
+    all(response -> _same_multipole_grid(response.beam.ells, ells), preparedT) ||
+        throw(ArgumentError("temperature prepared response multipoles must match ells"))
+    all(response -> _same_multipole_grid(response.beam.ells, ells), preparedE) ||
+        throw(ArgumentError("polarization prepared response multipoles must match ells"))
+    FT = sed_weight(sedT, preparedT, sedT_args...)
+    FE = sed_weight(sedE, preparedE, sedE_args...)
     cl = angular_power(angular, ells; amp=amp, angular_args...)
     return factorized_cross_te(FT, FE, cl)
 end

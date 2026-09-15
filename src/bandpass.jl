@@ -42,12 +42,16 @@ end
 # ------------------------------------------------------------------ #
 
 function _validate_band_inputs(nu::AbstractVector, bp::AbstractVector)
+    Base.require_one_based_indexing(nu, bp)
     isempty(nu) && throw(ArgumentError("frequency grid cannot be empty"))
     length(nu) == length(bp) ||
         throw(DimensionMismatch("frequency and passband vectors must have the same length"))
     all(isfinite, nu) || throw(ArgumentError("frequency grid must be finite"))
     all(isfinite, bp) || throw(ArgumentError("passband values must be finite"))
-    all(diff(nu) .> 0) || throw(ArgumentError("frequency grid must be strictly increasing"))
+    @inbounds for index in 2:length(nu)
+        nu[index] > nu[index - 1] ||
+            throw(ArgumentError("frequency grid must be strictly increasing"))
+    end
     return nothing
 end
 
@@ -67,11 +71,15 @@ struct RawBand{T<:Real}
     nu :: Vector{T}
     bp :: Vector{T}
 
-    function RawBand(nu::Vector{T}, bp::Vector{T}) where T<:Real
-        _validate_band_inputs(nu, bp)
-        return new{T}(nu, bp)
+    function RawBand{T}(nu, bp) where T<:Real
+        frequencies = convert(Vector{T}, nu)
+        transmission = convert(Vector{T}, bp)
+        _validate_band_inputs(frequencies, transmission)
+        return new{T}(frequencies, transmission)
     end
 end
+
+RawBand(nu::Vector{T}, bp::Vector{T}) where T<:Real = RawBand{T}(nu, bp)
 
 """
     AbstractBand
@@ -128,14 +136,15 @@ The normalization is
 
     τ̃(ν) = bp(ν) · ∂B_ν/∂T  /  ∫ bp(ν) · ∂B_ν/∂T  dν
 
-with `cmb2bb(ν) ∝ ∂B_ν/∂T`. A length-1 `nu` produces a monochromatic
-(Dirac-delta) band.
+with `cmb2bb(ν) ∝ ∂B_ν/∂T`. A length-1 input with nonzero transmission
+produces the same normalized monochromatic response as `point_band`.
 """
 function make_band(nu::AbstractVector{T}, bp::AbstractVector{T}) where T<:Real
     _validate_band_inputs(nu, bp)
     if length(nu) == 1
-        # Monochromatic: Dirac-delta passband, no integration
-        return Band{T}(Vector{T}(nu), Vector{T}(bp), nu[1], true)
+        iszero(bp[1]) &&
+            throw(DomainError(bp[1], "monochromatic transmission must be nonzero"))
+        return Band{T}(Vector{T}(nu), T[one(T)], nu[1], true)
     end
     w       = bp .* cmb2bb.(nu)
     norm    = trapz(nu, w)
@@ -187,7 +196,7 @@ For monochromatic bands, returns `sed_fn(band.nu_eff)` directly.
 """
 function integrate_sed(sed_fn, band::Band{T}) where {T<:Real}
     if band.monofreq
-        νmono::T = band.nu[1]
+        νmono::T = band.nu_eff
         return sed_fn(νmono)
     end
 
@@ -202,29 +211,22 @@ This avoids higher-order closures in hot AD/JET paths.
 """
 function integrate_tsz(band::Band{T}, nu_0::S, T_CMB::Real=T_CMB) where {T<:Real,S<:Real}
     if band.monofreq
-        return tsz_sed(band.nu[1], nu_0, T_CMB)
+        return tsz_sed(band.nu_eff, nu_0, T_CMB)
     end
     y = tsz_sed(band.nu, nu_0, T_CMB) .* band.norm_bp
     return trapz(band.nu, y)
-end
-
-"""
-    eval_sed_bands(sed_fn, bands)
-
-Evaluate a SED over an array of `Band`s, returning a vector of length
-`n_exp` with one integrated SED value per experiment.
-
-`sed_fn` is a function ν → SED(ν) (scalar → scalar).
-"""
-function eval_sed_bands(sed_fn, bands::AbstractVector{Band{T}}) where {T<:Real}
-    isempty(bands) && throw(ArgumentError("band collection cannot be empty"))
-    return [integrate_sed(sed_fn, band) for band in bands]
 end
 
 @inline integrate_sed(sed_fn, band::DeltaBand) = sed_fn(band.nu_eff)
 @inline integrate_tsz(band::DeltaBand, nu_0::Real, T_CMB::Real=T_CMB) =
     tsz_sed(band.nu_eff, nu_0, T_CMB)
 
+"""
+    eval_sed_bands(sed_fn, bands)
+
+Evaluate a SED over an array of bands, returning one integrated SED value per
+band. `sed_fn` must map a scalar frequency to a scalar response.
+"""
 function eval_sed_bands(sed_fn, bands::AbstractVector{<:AbstractBand})
     isempty(bands) && throw(ArgumentError("band collection cannot be empty"))
     return [integrate_sed(sed_fn, b) for b in bands]
@@ -253,12 +255,60 @@ struct ChromaticBeam{L<:AbstractVector, M<:AbstractMatrix}
     end
 end
 
+"""
+    PreparedChromaticBandpass
+
+Reusable quadrature weights and chromatic normalization for one band and beam.
+Construct with [`prepare_chromatic_bandpass`](@ref). Preparing outside repeated
+SED evaluations treats the band and beam as fixed; preparing inside a
+differentiated function preserves derivatives with respect to them.
+For monochromatic bands, the beam cancels and its sampled frequency axis is not
+used. Do not mutate the underlying band or beam arrays after preparation.
+"""
+struct PreparedChromaticBandpass{B<:AbstractBand, C<:ChromaticBeam, W, D}
+    band::B
+    beam::C
+    weights::W
+    denominator::D
+end
+
 @inline function _same_multipole_grid(a::AbstractVector, b::AbstractVector)
     length(a) == length(b) || return false
     @inbounds for i in eachindex(a, b)
         a[i] == b[i] || return false
     end
     return true
+end
+
+
+"""
+    prepare_chromatic_bandpass(band, beam)
+
+Prepare the SED-independent quadrature weights and normalized beam response for
+reuse across foreground components.
+"""
+function prepare_chromatic_bandpass(band::Band, beam::ChromaticBeam)
+    if band.monofreq
+        # The beam cancels for a delta response, so its frequency axis is unused.
+        return PreparedChromaticBandpass(band, beam, nothing, nothing)
+    end
+
+    size(beam.beam, 2) == length(band.nu) ||
+        throw(DimensionMismatch("beam frequency dimension must match the band"))
+    dnu = diff(band.nu)
+    trapz_weights = vcat(first(dnu) / 2,
+                         (dnu[1:end-1] .+ dnu[2:end]) ./ 2,
+                         last(dnu) / 2)
+    weights = trapz_weights .* band.norm_bp
+    denominator = beam.beam * weights
+    all(isfinite, denominator) && all(!iszero, denominator) ||
+        throw(DomainError(denominator, "chromatic normalization must be finite and nonzero"))
+    return PreparedChromaticBandpass(band, beam, weights, denominator)
+end
+
+function prepare_chromatic_bandpass(band::DeltaBand, beam::ChromaticBeam)
+    # A DeltaBand has no sampled frequency grid; the beam cancels identically.
+    return PreparedChromaticBandpass(band, beam, nothing, nothing)
 end
 
 """
@@ -278,29 +328,23 @@ Matches Eq. (31) of the ACT DR6 paper (Louis et al. 2025).
    returning `ones(n_ell)`.
 """
 function integrate_chromatic_sed(sed_fn, band::Band{T}, chromatic_beam::ChromaticBeam) where {T<:Real}
-    n_ell = length(chromatic_beam.ells)
-    if band.monofreq
-        val = sed_fn(band.nu[1])
-        return fill(val, n_ell)
-    end
-
-    n_nu = length(band.nu)
-    @assert size(chromatic_beam.beam, 2) == n_nu "ChromaticBeam: beam second dimension must match band frequency count"
-
-    sed_vals = sed_fn.(band.nu)
-    dnu = diff(band.nu)
-    trapz_weights = vcat(first(dnu) / 2,
-                         (dnu[1:end-1] .+ dnu[2:end]) ./ 2,
-                         last(dnu) / 2)
-    weights = trapz_weights .* band.norm_bp
-    numerator = chromatic_beam.beam * (weights .* sed_vals)
-    denominator = chromatic_beam.beam * weights
-    all(isfinite, denominator) && all(!iszero, denominator) ||
-        throw(DomainError(denominator, "chromatic normalization must be finite and nonzero"))
-    return numerator ./ denominator
+    prepared = prepare_chromatic_bandpass(band, chromatic_beam)
+    return integrate_chromatic_sed(sed_fn, prepared)
 end
 
-@inline integrate_chromatic_sed(sed_fn, band::DeltaBand, chromatic_beam::ChromaticBeam) = fill(sed_fn(band.nu_eff), length(chromatic_beam.ells))
+@inline function integrate_chromatic_sed(sed_fn, prepared::PreparedChromaticBandpass)
+    band = prepared.band
+    if prepared.weights === nothing
+        return fill(sed_fn(band.nu_eff), length(prepared.beam.ells))
+    end
+    numerator = prepared.beam.beam * (prepared.weights .* sed_fn.(band.nu))
+    return numerator ./ prepared.denominator
+end
+
+@inline integrate_chromatic_sed(sed_fn, band::DeltaBand,
+                                chromatic_beam::ChromaticBeam) =
+    integrate_chromatic_sed(sed_fn,
+                            prepare_chromatic_bandpass(band, chromatic_beam))
 
 """
     eval_chromatic_sed_bands(sed_fn, bands, chromatic_beams) -> Matrix
@@ -317,5 +361,17 @@ function eval_chromatic_sed_bands(sed_fn, bands::AbstractVector{<:AbstractBand},
         throw(ArgumentError("all chromatic beams must use the same multipole grid"))
     responses = [integrate_chromatic_sed(sed_fn, bands[i], chromatic_beams[i])
                  for i in eachindex(bands)]
+    return permutedims(reduce(hcat, responses))
+end
+
+function eval_chromatic_sed_bands(
+    sed_fn, prepared::AbstractVector{<:PreparedChromaticBandpass}
+)
+    isempty(prepared) &&
+        throw(ArgumentError("eval_chromatic_sed_bands: responses cannot be empty"))
+    reference_ells = prepared[1].beam.ells
+    all(response -> _same_multipole_grid(response.beam.ells, reference_ells), prepared) ||
+        throw(ArgumentError("all prepared responses must use the same multipole grid"))
+    responses = [integrate_chromatic_sed(sed_fn, response) for response in prepared]
     return permutedims(reduce(hcat, responses))
 end

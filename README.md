@@ -60,10 +60,16 @@ beam_matrix = [1 + 0.01 * (l / 3000) * (n - 150) / 20
 beam = ChromaticBeam(ells, beam_matrix)
 
 sed = ModifiedBlackbodySED(150.0, 19.6)
-weight_ell = sed_weight(sed, band, beam, 1.5)
+prepared = prepare_chromatic_bandpass(band, beam)
+weight_ell = sed_weight(sed, prepared, 1.5)
 ```
 
 `RawBand` and `shift_and_normalize` provide differentiable passband shifts. The chromatic beam is supplied as the already-evaluated matrix `beam[ell_index, nu_index]`; this package does not prescribe a survey beam model.
+
+Reuse a `PreparedChromaticBandpass` across SEDs only while its band and beam are
+fixed. If a shift or beam parameter is sampled, prepare once inside that
+parameter evaluation so its derivatives remain active. Do not mutate the band
+or beam arrays after preparation.
 
 Pairwise `eval_component` calls accept scalar frequencies, `DeltaBand`s, and
 tabulated `Band`s directly. A custom `AbstractSED` needs only a scalar
@@ -106,6 +112,7 @@ Response provenance remains the caller's responsibility. Do not apply a correcti
 ## Conventions
 
 - Angular evaluators return `D_ell`; `PowerLawShape` therefore takes the `D_ell` exponent directly.
+- Cross-spectrum kernels operate on real-valued, one-based arrays.
 - `PoissonShape` uses exact `ell(ell+1)` scaling, while legacy `shot_noise_power` intentionally implements an `ell^2` approximation.
 - `TemplateShape` represents a dense integer multipole grid beginning at `ell_min`. `ell_0=nothing` means the input is already normalized.
 - `TiltedTemplateShape(values, ell_0)` preserves the raw template normalization; wrap a pivot-normalized `TemplateShape` when `amp` denotes the physical pivot amplitude.

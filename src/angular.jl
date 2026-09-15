@@ -138,7 +138,7 @@ function angular_power end
 end
 
 @inline function angular_power(model::PowerLawShape, ell::AbstractVector; amp::Real=1.0, alpha::Real=0.0)
-    return eval_powerlaw(ell, model.ell_0, alpha; amp=amp)
+    return angular_power(model, ell, alpha; amp=amp)
 end
 
 @inline function angular_power(model::PoissonShape, ell::AbstractVector; amp::Real=1.0)
@@ -146,12 +146,11 @@ end
     return @. amp * (ell * (ell + 1)) / norm
 end
 
-@inline function _template_indices(model::TemplateShape, ell::AbstractVector)
+@inline function _validate_template_ells(model::TemplateShape, ell::AbstractVector)
     all(isinteger, ell) || throw(ArgumentError("TemplateShape can only be evaluated at integer multipoles"))
-    idx = Int.(ell) .- model.ell_min .+ 1
-    all(i -> checkbounds(Bool, model.template, i), idx) ||
-        throw(BoundsError(model.template, idx))
-    return idx
+    all(value -> model.ell_min <= value < model.ell_min + length(model.template), ell) ||
+        throw(BoundsError(model.template, ell))
+    return nothing
 end
 
 @inline function _template_norm(model::TemplateShape)
@@ -162,13 +161,12 @@ end
     return norm
 end
 
-@inline function _template_val(model::TemplateShape, ell::AbstractVector)
-    return model.template[_template_indices(model, ell)] ./ _template_norm(model)
-end
-
 @inline function angular_power(model::TemplateShape, ell::AbstractVector; amp::Real=1.0)
-    t = _template_val(model, ell)
-    return @. amp * t
+    _validate_template_ells(model, ell)
+    norm = _template_norm(model)
+    return map(ell) do value
+        amp * model.template[Int(value) - model.ell_min + 1] / norm
+    end
 end
 
 @inline function angular_power(model::TemplateShape; amp::Real=1.0)
@@ -180,7 +178,17 @@ end
     return @. base * (ell / model.ell_0)^alpha
 end
 
+@inline function angular_power(model::TiltedTemplateShape{<:TemplateShape},
+                               ell::AbstractVector, alpha::Real; amp::Real=1.0)
+    shape = model.shape
+    _validate_template_ells(shape, ell)
+    norm = _template_norm(shape)
+    return map(ell) do value
+        amp * shape.template[Int(value) - shape.ell_min + 1] / norm *
+        (value / model.ell_0)^alpha
+    end
+end
+
 @inline function angular_power(model::TiltedTemplateShape, ell::AbstractVector; amp::Real=1.0, alpha::Real=0.0)
-    base = angular_power(model.shape, ell; amp=amp)
-    return @. base * (ell / model.ell_0)^alpha
+    return angular_power(model, ell, alpha; amp=amp)
 end

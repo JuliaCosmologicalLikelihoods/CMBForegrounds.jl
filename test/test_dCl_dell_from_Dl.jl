@@ -160,6 +160,9 @@ central differences for interior points and boundary extrapolation for endpoints
         Dℓ = @. ℓs * (ℓs + 1) / (2π) * Cℓ
         derivative = CMBForegrounds.dCl_dell_from_Dl(ℓs, Dℓ)
         @test derivative[2] ≈ 2ℓs[2] rtol=1e-12
+
+        constant_Dℓ = @. ℓs * (ℓs + 1) / (2π) * 3.0
+        @test CMBForegrounds.dCl_dell_from_Dl(ℓs, constant_Dℓ) ≈ zeros(3) atol=1e-14
     end
 
     @testset "Type Stability" begin

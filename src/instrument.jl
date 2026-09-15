@@ -142,7 +142,10 @@ function add_template(D::AbstractArray{<:Any, 3}, template::AbstractVector, amp_
         throw(DimensionMismatch("template length must match the multipole dimension of D"))
     size(amp_matrix) == (size(D, 1), size(D, 2)) ||
         throw(DimensionMismatch("amp_matrix must match the frequency dimensions of D"))
-    return D .+ additive_template(template, amp_matrix)
+    n_freq = size(D, 1)
+    n_ell = size(D, 3)
+    return D .+ reshape(amp_matrix, n_freq, n_freq, 1) .*
+                reshape(template, 1, 1, n_ell)
 end
 
 # ------------------------------------------------------------------ #
@@ -257,7 +260,7 @@ function apply_ee_leakage(D_EE::AbstractArray{<:Any,3}, D_TE::AbstractArray{<:An
         throw(DimensionMismatch("gammas length must match the frequency dimensions"))
     G_i = reshape(gammas, n_freq, 1, 1)
     G_j = reshape(gammas, 1, n_freq, 1)
-    D_ET = permutedims(D_TE, (2, 1, 3))
+    D_ET = PermutedDimsArray(D_TE, (2, 1, 3))
     return @. D_EE + G_i * D_TE + G_j * D_ET + (G_i * G_j) * D_TT
 end
 

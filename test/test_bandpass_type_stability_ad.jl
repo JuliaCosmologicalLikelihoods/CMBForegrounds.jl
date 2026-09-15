@@ -15,11 +15,8 @@ We exercise:
   - `integrate_tsz` (specialized helper)
   - `eval_sed_bands` over a Vector{Band}
 
-Differentiation backends: ForwardDiff and Mooncake (Float64). Zygote is
-not supported on these helpers because of the `Vector{...}(undef, n)`
-+ in-place `y[i] = …` pattern needed for type stability — ACT calls
-them only via ForwardDiff and Mooncake `@from_chainrules`-wrapped
-fused assemblers.
+Differentiation backends: ForwardDiff and Mooncake (Float64), with Zygote
+coverage for the now-functional ordinary-band integration path.
 """
 
 using JET
@@ -27,6 +24,7 @@ using ADTypes
 import DifferentiationInterface as DI
 using ForwardDiff
 using Mooncake
+using Zygote
 
 
 # ----------------------------------------------------------------- #
@@ -128,9 +126,11 @@ end
 
     g_fd = DI.gradient(f_beta, AutoForwardDiff(), x0)
     g_mc = DI.gradient(f_beta, AutoMooncake(config=nothing), x0)
+    g_zg = DI.gradient(f_beta, AutoZygote(), x0)
     @test isfinite(f_beta(x0))
     @test isfinite(g_fd[1])
     @test isapprox(g_fd, g_mc; rtol=1e-6)
+    @test isapprox(g_fd, g_zg; rtol=1e-6)
 
     # Differentiate wrt MBB temperature
     f_temp = T -> CMBForegrounds.integrate_sed(
@@ -138,7 +138,9 @@ end
     x0_T = [19.6]
     g_fd_T = DI.gradient(f_temp, AutoForwardDiff(), x0_T)
     g_mc_T = DI.gradient(f_temp, AutoMooncake(config=nothing), x0_T)
+    g_zg_T = DI.gradient(f_temp, AutoZygote(), x0_T)
     @test isapprox(g_fd_T, g_mc_T; rtol=1e-6)
+    @test isapprox(g_fd_T, g_zg_T; rtol=1e-6)
 end
 
 
@@ -219,6 +221,8 @@ end
     x0 = [143.0]
     g_fd = DI.gradient(f_nu0, AutoForwardDiff(), x0)
     g_mc = DI.gradient(f_nu0, AutoMooncake(config=nothing), x0)
+    g_zg = DI.gradient(f_nu0, AutoZygote(), x0)
     @test isfinite(g_fd[1])
     @test isapprox(g_fd, g_mc; rtol=1e-6)
+    @test isapprox(g_fd, g_zg; rtol=1e-6)
 end

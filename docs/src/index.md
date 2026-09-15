@@ -69,10 +69,14 @@ band = make_band(nu, transmission)
 beam_values = [1 + 0.01 * (l / 3000) * (n - 150) / 20
                for l in ells, n in nu]
 beam = ChromaticBeam(ells, beam_values)
-weights = sed_weight(dust_sed, band, beam, 1.5)
+prepared = prepare_chromatic_bandpass(band, beam)
+weights = sed_weight(dust_sed, prepared, 1.5)
 ```
 
 The beam and requested component must use the same multipole grid.
+Reuse a prepared response across components only while the underlying band and
+beam are fixed. For sampled shifts or beam parameters, construct it once inside
+the current parameter evaluation.
 
 ## Component correlations
 
@@ -102,6 +106,8 @@ These functions do not decide whether an uncertainty belongs in the mean or cova
 ## Spectrum conventions
 
 All new angular models evaluate ``D_ell = ell(ell+1)C_ell/(2pi)``.
+
+Cross-spectrum kernels accept real-valued, conventionally one-based arrays.
 
 - `PowerLawShape` takes a `D_ell` slope directly.
 - `PoissonShape` is exactly constant in `C_ell`, hence proportional to `ell(ell+1)` in `D_ell`.

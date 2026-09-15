@@ -147,6 +147,11 @@ using JET
         g_mc = DI.gradient(loss_leak, AutoMooncake(config=nothing), [0.05])
         @test isapprox(g_fd, g_mc; rtol=1e-6)
 
+        tensor_loss = g -> sum(apply_ee_leakage(D_EE, D_TE_ordered, D_TT, g))
+        tensor_fd = DI.gradient(tensor_loss, AutoForwardDiff(), gammas)
+        @test tensor_fd ≈ DI.gradient(tensor_loss, AutoMooncake(config=nothing), gammas) rtol=1e-6
+        @test tensor_fd ≈ DI.gradient(tensor_loss, AutoZygote(), gammas) rtol=1e-8
+
         @test_throws DimensionMismatch te_leakage(C_TT, gamma_curve[1:end-1])
         @test_throws DimensionMismatch et_leakage(C_TT, gamma_curve[1:end-1])
         @test_throws DimensionMismatch ee_leakage(

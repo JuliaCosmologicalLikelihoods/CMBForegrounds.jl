@@ -53,8 +53,10 @@ export AbstractAngularModel, PowerLawShape, PoissonShape, TemplateShape, TiltedT
 export AbstractSED, ModifiedBlackbodySED, RadioSED, ThermalSZSED, ConstantSED, NoSED, SkyComponent, sed_weight, eval_component, eval_component_te
 export AbstractCorrelationModel, TemplateCorrelation, GeometricMeanCorrelation, correlation_power
 export x_cmb, rj2cmb, cmb2bb, tsz_f, tsz_sed, mbb_sed, radio_sed, constant_sed
-export trapz, RawBand, Band, AbstractBand, DeltaBand, ChromaticBeam, make_band, point_band, shift_and_normalize,
-       integrate_sed, integrate_tsz, eval_sed_bands, integrate_chromatic_sed, eval_chromatic_sed_bands
+export trapz, RawBand, Band, AbstractBand, DeltaBand, ChromaticBeam,
+       PreparedChromaticBandpass, make_band, point_band, shift_and_normalize,
+       prepare_chromatic_bandpass, integrate_sed, integrate_tsz, eval_sed_bands,
+       integrate_chromatic_sed, eval_chromatic_sed_bands
 export factorized_cross, factorized_cross_te, correlated_cross, build_szxcib_cl,
        assemble_TT, assemble_EE, assemble_TE
 export calibration_factor, apply_calibration,

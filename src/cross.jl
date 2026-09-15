@@ -4,7 +4,8 @@
 Cross-spectrum assembly: outer-product of frequency SEDs and ℓ-templates.
 Mirrors fgspectra/cross.py.
 
-All functions return 3D arrays of shape (n_freq, n_freq, n_ell).
+All functions operate on real-valued spectra and return 3D arrays of shape
+(n_freq, n_freq, n_ell).
 All are pure functions — no mutation — compatible with ForwardDiff and Mooncake.
 """
 
@@ -27,7 +28,8 @@ Arguments:
 
 Returns array of shape (n_freq, n_freq, n_ell).
 """
-function factorized_cross(f::AbstractVector, cl::AbstractVector)
+function factorized_cross(f::AbstractVector{<:Real}, cl::AbstractVector{<:Real})
+    Base.require_one_based_indexing(f, cl)
     n_freq = length(f)
     n_ell  = length(cl)
     # outer[i,j] = f[i]*f[j], then broadcast with cl
@@ -49,7 +51,8 @@ Arguments:
 
 Returns array of shape (n_freq, n_freq, n_ell).
 """
-function factorized_cross(F::AbstractMatrix, cl::AbstractVector)
+function factorized_cross(F::AbstractMatrix{<:Real}, cl::AbstractVector{<:Real})
+    Base.require_one_based_indexing(F, cl)
     n_freq, n_ell = size(F)
     @assert length(cl) == n_ell "factorized_cross: cl length must match F second dimension (n_ell)"
     F_i = reshape(F, n_freq, 1, n_ell)
@@ -78,7 +81,9 @@ Arguments:
 
 Returns array of shape (n_freq, n_freq, n_ell).
 """
-function factorized_cross_te(fT::AbstractVector, fE::AbstractVector, cl::AbstractVector)
+function factorized_cross_te(fT::AbstractVector{<:Real}, fE::AbstractVector{<:Real},
+                             cl::AbstractVector{<:Real})
+    Base.require_one_based_indexing(fT, fE, cl)
     n_freq = length(fT)
     n_ell  = length(cl)
     outer  = fT .* fE'                                     # (n_freq, n_freq)
@@ -99,7 +104,9 @@ Arguments:
 
 Returns array of shape (n_freq, n_freq, n_ell).
 """
-function factorized_cross_te(FT::AbstractMatrix, FE::AbstractMatrix, cl::AbstractVector)
+function factorized_cross_te(FT::AbstractMatrix{<:Real}, FE::AbstractMatrix{<:Real},
+                             cl::AbstractVector{<:Real})
+    Base.require_one_based_indexing(FT, FE, cl)
     n_freq, n_ell = size(FT)
     @assert size(FE) == (n_freq, n_ell) "factorized_cross_te: FE shape must match FT shape"
     @assert length(cl) == n_ell "factorized_cross_te: cl length must match FT second dimension (n_ell)"
@@ -134,7 +141,8 @@ Arguments:
 Returns array of shape (n_freq, n_freq, n_ell).
 Matches `CorrelatedFactorizedCrossSpectrum` in fgspectra/cross.py.
 """
-function correlated_cross(f::AbstractMatrix, cl::AbstractArray{<:Any,3})
+function correlated_cross(f::AbstractMatrix{<:Real}, cl::AbstractArray{<:Real,3})
+    Base.require_one_based_indexing(f, cl)
     n_comp, n_freq = size(f)
     n_ell          = size(cl, 3)
     # Pure sum — no mutation — compatible with ForwardDiff and Mooncake
@@ -162,8 +170,10 @@ Layout:
 
 All inputs are Vectors of length n_ell (already amplitude-multiplied).
 """
-function build_szxcib_cl(cl_tsz::AbstractVector, cl_cibc::AbstractVector,
-                          cl_cross::AbstractVector)
+function build_szxcib_cl(cl_tsz::AbstractVector{<:Real},
+                         cl_cibc::AbstractVector{<:Real},
+                         cl_cross::AbstractVector{<:Real})
+    Base.require_one_based_indexing(cl_tsz, cl_cibc, cl_cross)
     n_ell = length(cl_tsz)
     # Pure construction — no mutation — compatible with ForwardDiff and Mooncake
     layer11 = reshape(cl_tsz,  1, 1, n_ell)
@@ -200,13 +210,17 @@ Fused TT foreground assembly — equivalent to:
 Returns array of shape (n_freq, n_freq, n_ell).
 """
 function assemble_TT(a_p::Real, a_gtt::Real, a_s::Real,
-                     f_ksz::AbstractVector,   f_cibp::AbstractVector,
-                     f_dust::AbstractVector,  f_radio::AbstractVector,
-                     f_tsz::AbstractVector,   f_cibc::AbstractVector,
-                     cl_ksz::AbstractVector,  cl_cibp::AbstractVector,
-                     cl_dustT::AbstractVector, cl_radio::AbstractVector,
-                     cl_tsz::AbstractVector,  cl_cibc::AbstractVector,
-                     cl_szxcib::AbstractVector)
+                     f_ksz::AbstractVector{<:Real},   f_cibp::AbstractVector{<:Real},
+                     f_dust::AbstractVector{<:Real},  f_radio::AbstractVector{<:Real},
+                     f_tsz::AbstractVector{<:Real},   f_cibc::AbstractVector{<:Real},
+                     cl_ksz::AbstractVector{<:Real},  cl_cibp::AbstractVector{<:Real},
+                     cl_dustT::AbstractVector{<:Real}, cl_radio::AbstractVector{<:Real},
+                     cl_tsz::AbstractVector{<:Real},  cl_cibc::AbstractVector{<:Real},
+                     cl_szxcib::AbstractVector{<:Real})
+    Base.require_one_based_indexing(f_ksz, f_cibp, f_dust, f_radio,
+                                    f_tsz, f_cibc, cl_ksz, cl_cibp,
+                                    cl_dustT, cl_radio, cl_tsz, cl_cibc,
+                                    cl_szxcib)
     n_freq = length(f_ksz)
     n_ell  = length(cl_ksz)
     T = promote_type(typeof(a_p), typeof(a_gtt), typeof(a_s),
@@ -246,8 +260,11 @@ Fused EE foreground assembly — equivalent to:
     a_gee  .* factorized_cross(f_dust_P,  cl_dustE)
 """
 function assemble_EE(a_psee::Real, a_gee::Real,
-                     f_radio_P::AbstractVector, f_dust_P::AbstractVector,
-                     cl_radio::AbstractVector, cl_dustE::AbstractVector)
+                     f_radio_P::AbstractVector{<:Real},
+                     f_dust_P::AbstractVector{<:Real},
+                     cl_radio::AbstractVector{<:Real},
+                     cl_dustE::AbstractVector{<:Real})
+    Base.require_one_based_indexing(f_radio_P, f_dust_P, cl_radio, cl_dustE)
     n_freq = length(f_radio_P)
     n_ell  = length(cl_radio)
     T = promote_type(typeof(a_psee), typeof(a_gee),
@@ -278,9 +295,14 @@ Fused TE foreground assembly — equivalent to:
     a_gte  .* factorized_cross_te(f_dust_T,  f_dust_P,  cl_dustE)
 """
 function assemble_TE(a_pste::Real, a_gte::Real,
-                     f_radio_T::AbstractVector, f_radio_P::AbstractVector,
-                     f_dust_T::AbstractVector,  f_dust_P::AbstractVector,
-                     cl_radio::AbstractVector,  cl_dustE::AbstractVector)
+                     f_radio_T::AbstractVector{<:Real},
+                     f_radio_P::AbstractVector{<:Real},
+                     f_dust_T::AbstractVector{<:Real},
+                     f_dust_P::AbstractVector{<:Real},
+                     cl_radio::AbstractVector{<:Real},
+                     cl_dustE::AbstractVector{<:Real})
+    Base.require_one_based_indexing(f_radio_T, f_radio_P, f_dust_T,
+                                    f_dust_P, cl_radio, cl_dustE)
     n_freq = length(f_radio_T)
     n_ell  = length(cl_radio)
     T = promote_type(typeof(a_pste), typeof(a_gte),

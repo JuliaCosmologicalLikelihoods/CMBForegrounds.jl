@@ -101,9 +101,11 @@ cross_calibration_mean
 
 ```@docs
 RawBand
+PreparedChromaticBandpass
 make_band
 point_band
 shift_and_normalize
+prepare_chromatic_bandpass
 eval_sed_bands
 integrate_tsz
 trapz

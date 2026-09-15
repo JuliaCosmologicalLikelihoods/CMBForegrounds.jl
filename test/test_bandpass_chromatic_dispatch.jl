@@ -48,6 +48,13 @@ using JET
         pband = point_band(145.0)
         F_mono = integrate_chromatic_sed(ν -> ν^2, pband, chrom_beam1)
         @test all(F_mono .== 145.0^2)
+
+        manual = Band([100.0], [1.0], 145.0, true)
+        @test integrate_sed(identity, manual) == 145.0
+        @test integrate_tsz(manual, 143.0) ≈ tsz_sed(145.0, 143.0)
+        @test integrate_chromatic_sed(identity,
+                                      prepare_chromatic_bandpass(manual, chrom_beam1)) ==
+              fill(145.0, n_ell)
     end
 
     @testset "2. Achromatic limit" begin
@@ -72,6 +79,75 @@ using JET
         # ConstantSED / NoSED
         @test sed_weight(ConstantSED(), band1, chrom_beam1) == ones(n_ell)
         @test sed_weight(NoSED(), band1, chrom_beam1) == ones(n_ell)
+    end
+
+    @testset "Prepared chromatic responses" begin
+        prepared1 = prepare_chromatic_bandpass(band1, chrom_beam1)
+        prepared2 = prepare_chromatic_bandpass(band2, chrom_beam2)
+        prepared = [prepared1, prepared2]
+        sed_fn = ν -> cib_mbb_sed_weight(1.75, 19.6, 150.0, ν)
+
+        @test integrate_chromatic_sed(sed_fn, prepared1) ≈
+              integrate_chromatic_sed(sed_fn, band1, chrom_beam1)
+        @test eval_chromatic_sed_bands(sed_fn, prepared) ≈
+              eval_chromatic_sed_bands(sed_fn, bands, chrom_beams)
+
+        delta = DeltaBand(145.0)
+        prepared_delta = prepare_chromatic_bandpass(delta, chrom_beam1)
+        @test integrate_chromatic_sed(sed_fn, prepared_delta) ==
+              integrate_chromatic_sed(sed_fn, delta, chrom_beam1)
+
+        mbb = ModifiedBlackbodySED(150.0, 19.6)
+        component = SkyComponent(mbb, PowerLawShape(3000.0))
+        @test eval_component(component, ells, prepared, 2.0, 1.75; alpha=-0.6) ≈
+              eval_component(component, ells, bands, chrom_beams, 2.0, 1.75;
+                             alpha=-0.6)
+        @test eval_component_te(mbb, mbb, component.angular, ells,
+                                prepared, prepared, 2.0,
+                                (1.75,), (1.75,); alpha=-0.6) ≈
+              eval_component_te(mbb, mbb, component.angular, ells,
+                                bands, chrom_beams, bands, chrom_beams, 2.0,
+                                (1.75,), (1.75,); alpha=-0.6)
+
+        beta_loss = p -> sum(sed_weight(mbb, prepared1, p[1]))
+        beta = [1.75]
+        beta_fd = DI.gradient(beta_loss, AutoForwardDiff(), beta)
+        @test beta_fd ≈ DI.gradient(beta_loss, AutoZygote(), beta) rtol=1e-8
+        @test beta_fd ≈ DI.gradient(beta_loss, AutoMooncake(config=nothing), beta) rtol=1e-6
+
+        raw = RawBand(nu, bp1)
+        shift_loss = p -> begin
+            shifted = shift_and_normalize(raw, p[1])
+            response = prepare_chromatic_bandpass(shifted, chrom_beam1)
+            sum(integrate_chromatic_sed(sed_fn, response))
+        end
+        shift_fd = DI.gradient(shift_loss, AutoForwardDiff(), [0.0])
+        @test shift_fd ≈ DI.gradient(shift_loss, AutoZygote(), [0.0]) rtol=1e-8
+        @test shift_fd ≈ DI.gradient(shift_loss, AutoMooncake(config=nothing), [0.0]) rtol=1e-6
+
+        beam_direction = [((n - 150.0) / 20)^2 * (l / 2000.0)
+                          for l in ells, n in nu]
+        beam_loss = p -> begin
+            active_beam = ChromaticBeam(ells, beam_mat1 .+ p[1] .* beam_direction)
+            response = prepare_chromatic_bandpass(band1, active_beam)
+            sum(integrate_chromatic_sed(sed_fn, response))
+        end
+        beam_fd = DI.gradient(beam_loss, AutoForwardDiff(), [0.1])
+        @test beam_fd ≈ DI.gradient(beam_loss, AutoZygote(), [0.1]) rtol=1e-8
+        @test beam_fd ≈ DI.gradient(beam_loss, AutoMooncake(config=nothing), [0.1]) rtol=1e-6
+
+        shifted_response = prepare_chromatic_bandpass(
+            shift_and_normalize(raw, 1.0), chrom_beam1
+        )
+        @test !isapprox(integrate_chromatic_sed(sed_fn, prepared1),
+                        integrate_chromatic_sed(sed_fn, shifted_response))
+
+        @test_throws DimensionMismatch prepare_chromatic_bandpass(
+            band1, ChromaticBeam(ells, ones(n_ell, n_nu - 1))
+        )
+        @test_throws ArgumentError eval_chromatic_sed_bands(
+            sed_fn, PreparedChromaticBandpass[]
+        )
     end
 
     @testset "4. Shifted ACT reference cases" begin
@@ -152,6 +228,9 @@ using JET
         D_comp = eval_component(comp, ells, bands, chrom_beams, 5.0, 1.75; alpha=-0.6)
         @test size(D_comp) == (2, 2, n_ell)
         @test isapprox(D_comp, factorized_cross(F, angular_power(comp.angular, ells; amp=5.0, alpha=-0.6)))
+
+        @test !applicable(factorized_cross, complex.(F), cl)
+        @test !applicable(factorized_cross_te, complex.(F), complex.(F), cl)
     end
 
     @testset "6. Autodiff on matrix factorized_cross" begin
