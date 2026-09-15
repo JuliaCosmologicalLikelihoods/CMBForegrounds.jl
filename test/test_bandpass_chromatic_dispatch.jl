@@ -1,6 +1,7 @@
 using Test
 using CMBForegrounds
 using LinearAlgebra
+using ChainRulesCore
 using ForwardDiff
 using Mooncake
 using Zygote
@@ -185,6 +186,31 @@ using JET
         int_loss = x -> sum(W .* factorized_cross(x, int_cl))
         @test DI.gradient(int_loss, AutoForwardDiff(), F) ≈
               DI.gradient(int_loss, AutoZygote(), F) rtol=1e-10
+
+        F_diag = Diagonal([1.0, 2.0])
+        D_diag, pb_diag = ChainRulesCore.rrule(factorized_cross, F_diag, ones(2))
+        _, dF_diag, dcl_diag = pb_diag(ones(size(D_diag)))
+        @test dF_diag isa Diagonal
+        @test Matrix(dF_diag) == Matrix(Diagonal([2.0, 4.0]))
+        @test dcl_diag == [1.0, 4.0]
+
+        F_view = @view reshape(collect(1.0:9.0), 3, 3)[1:2, 1:2]
+        D_view, pb_view = ChainRulesCore.rrule(factorized_cross, F_view, ones(2))
+        _, dF_view, dcl_view = pb_view(ones(size(D_view)))
+        @test dF_view == [6.0 18.0; 6.0 18.0]
+        @test dcl_view == [9.0, 81.0]
+
+        FT_diag = Diagonal([1.0, 2.0])
+        FE_diag = Diagonal([3.0, 4.0])
+        D_te_diag, pb_te_diag = ChainRulesCore.rrule(
+            factorized_cross_te, FT_diag, FE_diag, ones(2)
+        )
+        _, dFT_diag, dFE_diag, dcl_te_diag = pb_te_diag(ones(size(D_te_diag)))
+        @test dFT_diag isa Diagonal
+        @test dFE_diag isa Diagonal
+        @test Matrix(dFT_diag) == Matrix(Diagonal([3.0, 4.0]))
+        @test Matrix(dFE_diag) == Matrix(Diagonal([1.0, 2.0]))
+        @test dcl_te_diag == [3.0, 8.0]
     end
 
     @testset "7. Type stability (JET)" begin

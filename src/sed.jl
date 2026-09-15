@@ -150,6 +150,8 @@ end
     sed_weight(sed::AbstractSED, nu_or_band, args...)
 
 Evaluate the dimensionless SED weight for a given frequency or passband.
+Defining scalar-frequency evaluation for a custom `AbstractSED` automatically
+provides `DeltaBand`, tabulated `Band`, and chromatic-band lifting.
 """
 function sed_weight end
 
@@ -160,10 +162,6 @@ end
 
 @inline function sed_weight(sed::ModifiedBlackbodySED, nu::AbstractVector{<:Real}, beta::Real)
     return cib_mbb_sed_weight.(beta, sed.T_dust, sed.nu_0, nu; T_CMB=sed.T_CMB)
-end
-
-@inline function sed_weight(sed::ModifiedBlackbodySED, band::Band, beta::Real)
-    return integrate_sed(ν -> sed_weight(sed, ν, beta), band)
 end
 
 # RadioSED
@@ -181,10 +179,6 @@ end
     else
         return radio_sed(nu, sed.nu_0, beta, sed.T_CMB)
     end
-end
-
-@inline function sed_weight(sed::RadioSED, band::Band, beta::Real)
-    return integrate_sed(ν -> sed_weight(sed, ν, beta), band)
 end
 
 # ThermalSZSED
@@ -215,15 +209,18 @@ end
 @inline sed_weight(::NoSED, nu::Real) = one(nu)
 @inline sed_weight(::NoSED, nu::AbstractVector{<:Real}) = ones(eltype(nu), length(nu))
 
-# Generic tabulated-band lifting for SEDs without a specialized hot path.
-@inline function sed_weight(sed::Union{ConstantSED, NoSED}, band::Band)
-    return integrate_sed(ν -> sed_weight(sed, ν), band)
+# Generic scalar-SED lifting to a tabulated band.
+@inline function sed_weight(sed::AbstractSED, band::Band, args...)
+    return integrate_sed(ν -> sed_weight(sed, ν, args...), band)
 end
 
-# Chromatic beam single-band evaluation
-@inline function sed_weight(sed::AbstractSED, band::AbstractBand, chromatic_beam::ChromaticBeam, args...)
-    fn = ν -> sed_weight(sed, ν, args...)
-    return integrate_chromatic_sed(fn, band, chromatic_beam)
+@inline function sed_weight(sed::AbstractSED, band::Band,
+                            chromatic_beam::ChromaticBeam, args...)
+    return integrate_chromatic_sed(ν -> sed_weight(sed, ν, args...), band, chromatic_beam)
+end
+
+@inline function sed_weight(sed::Union{ConstantSED, NoSED}, band::Band)
+    return integrate_sed(ν -> sed_weight(sed, ν), band)
 end
 
 # Collection of Bands helper
@@ -244,22 +241,30 @@ end
 """
     eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells, nu1, nu2, amp, sed_args...; angular_args...)
 
-Evaluate a single cross-spectrum ``D_\\ell(\\nu_1, \\nu_2)`` for a physical component:
+Evaluate a single cross-spectrum ``D_\\ell(\\nu_1, \\nu_2)`` for a physical component.
+Each frequency leg may be a scalar frequency, a vector of frequencies, or an
+`AbstractBand`:
 ```math
 D_\\ell = \\mathrm{amp} \\cdot S(\\nu_1) \\cdot S(\\nu_2) \\cdot D_\\ell^\\mathrm{ang}
 ```
 """
 function eval_component(sed::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        nu1::Union{Real, AbstractVector{<:Real}}, nu2::Union{Real, AbstractVector{<:Real}},
+                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand},
+                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand},
                         amp::Real, sed_args...; angular_args...)
     s1 = sed_weight(sed, nu1, sed_args...)
     s2 = sed_weight(sed, nu2, sed_args...)
+    n_ell = length(ells)
+    (s1 isa Real || length(s1) == n_ell) &&
+        (s2 isa Real || length(s2) == n_ell) ||
+        throw(DimensionMismatch("vector-valued SED weights must have length equal to ells"))
     ang = angular_power(angular, ells; amp=amp, angular_args...)
     return @. (s1 * s2) * ang
 end
 
 function eval_component(comp::SkyComponent, ells::AbstractVector,
-                        nu1::Union{Real, AbstractVector{<:Real}}, nu2::Union{Real, AbstractVector{<:Real}},
+                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand},
+                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand},
                         amp::Real, sed_args...; angular_args...)
     return eval_component(comp.sed, comp.angular, ells, nu1, nu2, amp, sed_args...; angular_args...)
 end
@@ -270,10 +275,15 @@ end
 Evaluate a cross-spectrum with different SED properties on leg 1 and leg 2 (e.g. TE or distinct map emissivities).
 """
 function eval_component(sed1::AbstractSED, sed2::AbstractSED, angular::AbstractAngularModel, ells::AbstractVector,
-                        nu1::Union{Real, AbstractVector{<:Real}}, nu2::Union{Real, AbstractVector{<:Real}},
+                        nu1::Union{Real, AbstractVector{<:Real}, AbstractBand},
+                        nu2::Union{Real, AbstractVector{<:Real}, AbstractBand},
                         amp::Real, sed1_args::Tuple=(), sed2_args::Tuple=(); angular_args...)
     s1 = sed_weight(sed1, nu1, sed1_args...)
     s2 = sed_weight(sed2, nu2, sed2_args...)
+    n_ell = length(ells)
+    (s1 isa Real || length(s1) == n_ell) &&
+        (s2 isa Real || length(s2) == n_ell) ||
+        throw(DimensionMismatch("vector-valued SED weights must have length equal to ells"))
     ang = angular_power(angular, ells; amp=amp, angular_args...)
     return @. (s1 * s2) * ang
 end

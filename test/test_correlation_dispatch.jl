@@ -101,6 +101,34 @@ using Random
         grad_zg = DI.gradient(g_ad, AutoZygote(), p0)
         @test grad_fd ≈ grad_mk rtol=1e-8
         @test grad_fd ≈ grad_zg rtol=1e-8
+
+        corr_power = TemplateCorrelation(PowerLawShape(3000.0))
+        power_ells = [1500, 3000]
+        D_power = correlation_power(corr_power, power_ells, xi, 2.0, 3.0,
+                                    1.0, 1.0, 1.0, 1.0; alpha=0.8)
+        expected_power = @. -2xi * sqrt(6.0) * (power_ells / 3000)^0.8
+        @test D_power ≈ expected_power
+
+        normalized = TemplateShape(2 .* ones(3001); ell_0=3000)
+        corr_tilted = TemplateCorrelation(TiltedTemplateShape(normalized, 3000.0))
+        tilt_loss(p) = sum(correlation_power(
+            corr_tilted, power_ells, xi, 2.0, 3.0,
+            1.0, 1.0, 1.0, 1.0; alpha=p[1]
+        ))
+        for alpha in (0.0, 0.8)
+            p = [alpha]
+            g_fd = DI.gradient(tilt_loss, AutoForwardDiff(), p)
+            @test g_fd ≈ DI.gradient(tilt_loss, AutoMooncake(config=nothing), p) rtol=1e-8
+            @test g_fd ≈ DI.gradient(tilt_loss, AutoZygote(), p) rtol=1e-8
+        end
+
+        @test_throws MethodError correlation_power(
+            corr_power, xi, 2.0, 3.0, 1.0, 1.0, 1.0, 1.0
+        )
+        @test_throws DimensionMismatch correlation_power(
+            corr, [100, 200], xi, 2.0, 3.0,
+            ones(1), ones(2), ones(2), ones(2)
+        )
     end
 
     # ----------------------------------------------------------------- #
@@ -150,6 +178,11 @@ using Random
         D2_22 = eval_component(comp_cib, ells, nu2, nu2, A_CIB, beta_cib; alpha=0.8)
         D_direct = correlation_power(corr_geo, ells, xi, D1_11, D1_22, D2_11, D2_22)
         @test D_direct ≈ D_geo
+
+        @test_throws DimensionMismatch correlation_power(
+            corr_geo, [100, 200, 300], xi,
+            ones(1), ones(1), ones(1), ones(1)
+        )
 
         # Type stability
         JET.@test_opt correlation_power(corr_geo, ells, xi, D1_11, D1_22, D2_11, D2_22)

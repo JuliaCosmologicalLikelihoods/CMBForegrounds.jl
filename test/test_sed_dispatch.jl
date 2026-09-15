@@ -16,6 +16,9 @@ using Mooncake
 using Zygote
 using Random
 
+struct TestPowerSED <: AbstractSED end
+CMBForegrounds.sed_weight(::TestPowerSED, nu::Real, beta::Real) = (nu / 150.0)^beta
+
 @testset "SED Dispatch & Component Composition" begin
     rng = MersenneTwister(12345)
     ells = collect(2:1000)
@@ -202,6 +205,71 @@ using Random
 
         comp_tmpl = SkyComponent(dust_sed, dust_tmpl)
         @test eval_component(comp_tmpl, ells, 150.0, 220.0, amp_dust, beta_dust) ≈ ref_dust_tmpl
+
+        b150 = DeltaBand(150.0)
+        b220 = point_band(220.0)
+        @test eval_component(comp_pl, ells, b150, b220, amp_dust, beta_dust;
+                             alpha=alpha_eff) ≈ ref_dust_pl
+
+        finite_band = make_band(collect(140.0:160.0), ones(21))
+        pair_band = eval_component(comp_pl, ells, finite_band, b220,
+                                   amp_dust, beta_dust; alpha=alpha_eff)
+        pair_ref = sed_weight(dust_sed, finite_band, beta_dust) *
+                   sed_weight(dust_sed, b220, beta_dust) .*
+                   angular_power(comp_pl.angular, ells;
+                                 amp=amp_dust, alpha=alpha_eff)
+        @test pair_band ≈ pair_ref
+
+        pair_ordered = eval_component(
+            dust_sed, dust_sed, comp_pl.angular, ells,
+            finite_band, b220, amp_dust,
+            (beta_dust,), (beta_dust,); alpha=alpha_eff
+        )
+        @test pair_ordered ≈ pair_ref
+        @test_throws DimensionMismatch eval_component(
+            comp_pl, ells, [150.0], fill(220.0, length(ells)),
+            amp_dust, beta_dust; alpha=alpha_eff
+        )
+        @test_throws DimensionMismatch eval_component(
+            dust_sed, dust_sed, comp_pl.angular, ells,
+            fill(150.0, length(ells)), [220.0], amp_dust,
+            (beta_dust,), (beta_dust,); alpha=alpha_eff
+        )
+    end
+
+    @testset "Custom SED band lifting" begin
+        sed = TestPowerSED()
+        beta = 1.7
+        band = make_band(collect(140.0:160.0), ones(21))
+        delta = DeltaBand(150.0)
+        beam = ChromaticBeam([100, 200], ones(2, length(band.nu)))
+
+        @test sed_weight(sed, 160.0, beta) ≈ (160 / 150)^beta
+        @test sed_weight(sed, delta, beta) == 1.0
+        @test sed_weight(sed, band, beta) ≈
+              integrate_sed(nu -> (nu / 150)^beta, band)
+        @test sed_weight(sed, band, beam, beta) ≈
+              fill(sed_weight(sed, band, beta), 2)
+
+        loss(b) = sed_weight(sed, band, b[1])
+        p = [beta]
+        g_fd = DI.gradient(loss, AutoForwardDiff(), p)
+        @test g_fd ≈ DI.gradient(loss, AutoMooncake(config=nothing), p) rtol=1e-8
+        @test g_fd ≈ DI.gradient(loss, AutoZygote(), p) rtol=1e-8
+
+        @test_throws ArgumentError make_band(Float64[], Float64[])
+        @test_throws DimensionMismatch make_band([140.0, 150.0], [1.0])
+        @test_throws ArgumentError make_band([150.0, 140.0], ones(2))
+        @test_throws ArgumentError make_band([NaN], [1.0])
+        @test_throws ArgumentError make_band([140.0, 150.0], [1.0, Inf])
+        @test_throws DomainError make_band([140.0, 150.0], zeros(2))
+        @test_throws ArgumentError RawBand(Float64[], Float64[])
+        @test_throws DimensionMismatch RawBand([140.0, 150.0], [1.0])
+        @test_throws ArgumentError RawBand([150.0, 140.0], ones(2))
+        @test_throws ArgumentError eval_sed_bands(identity, AbstractBand[])
+        zero_beam = ChromaticBeam([100, 200], zeros(2, length(band.nu)))
+        @test_throws DomainError sed_weight(sed, band, zero_beam, beta)
+        @test isempty(Test.detect_ambiguities(CMBForegrounds; recursive=true))
     end
 
     # ----------------------------------------------------------------- #

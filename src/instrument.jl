@@ -124,7 +124,11 @@ end
 
 Add a scaled multipole template `amp * template` to spectrum `cl`.
 """
-@inline add_template(cl::AbstractVector, template::AbstractVector, amp::Real=1.0) = cl .+ (amp .* template)
+@inline function add_template(cl::AbstractVector, template::AbstractVector, amp::Real=1.0)
+    length(cl) == length(template) ||
+        throw(DimensionMismatch("cl and template must have the same length"))
+    return cl .+ (amp .* template)
+end
 
 """
     add_template(D::AbstractArray{<:Any, 3}, template::AbstractVector, amp_matrix::AbstractMatrix)
@@ -132,6 +136,12 @@ Add a scaled multipole template `amp * template` to spectrum `cl`.
 Add an amplitude-weighted template to a 3D spectrum tensor `D`.
 """
 function add_template(D::AbstractArray{<:Any, 3}, template::AbstractVector, amp_matrix::AbstractMatrix)
+    size(D, 1) == size(D, 2) ||
+        throw(DimensionMismatch("D must have square frequency dimensions"))
+    length(template) == size(D, 3) ||
+        throw(DimensionMismatch("template length must match the multipole dimension of D"))
+    size(amp_matrix) == (size(D, 1), size(D, 2)) ||
+        throw(DimensionMismatch("amp_matrix must match the frequency dimensions of D"))
     return D .+ additive_template(template, amp_matrix)
 end
 
@@ -148,7 +158,11 @@ Compute the additive T -> E polarization leakage contribution to TE:
 ```
 where `gamma_j` is the leakage factor/curve for channel `j`.
 """
-@inline te_leakage(C_TT::AbstractVector, gamma_j::Union{Real, AbstractVector}) = gamma_j .* C_TT
+@inline function te_leakage(C_TT::AbstractVector, gamma_j::Union{Real, AbstractVector})
+    gamma_j isa AbstractVector && length(gamma_j) != length(C_TT) &&
+        throw(DimensionMismatch("gamma_j must have the same length as C_TT"))
+    return gamma_j .* C_TT
+end
 
 """
     et_leakage(C_TT::AbstractVector, gamma_i::Union{Real, AbstractVector})
@@ -159,7 +173,11 @@ Compute the additive T -> E polarization leakage contribution to ET:
 ```
 where `gamma_i` is the leakage factor/curve for channel `i`.
 """
-@inline et_leakage(C_TT::AbstractVector, gamma_i::Union{Real, AbstractVector}) = gamma_i .* C_TT
+@inline function et_leakage(C_TT::AbstractVector, gamma_i::Union{Real, AbstractVector})
+    gamma_i isa AbstractVector && length(gamma_i) != length(C_TT) &&
+        throw(DimensionMismatch("gamma_i must have the same length as C_TT"))
+    return gamma_i .* C_TT
+end
 
 """
     ee_leakage(C_TT::AbstractVector, C_TE_ij::AbstractVector, C_TE_ji::AbstractVector,
@@ -173,6 +191,13 @@ Retains both linear cross-terms and the quadratic TT term.
 """
 function ee_leakage(C_TT::AbstractVector, C_TE_ij::AbstractVector, C_TE_ji::AbstractVector,
                     gamma_i::Union{Real, AbstractVector}, gamma_j::Union{Real, AbstractVector})
+    n_ell = length(C_TT)
+    length(C_TE_ij) == n_ell && length(C_TE_ji) == n_ell ||
+        throw(DimensionMismatch("TT, TE_ij, and TE_ji must have the same length"))
+    gamma_i isa AbstractVector && length(gamma_i) != n_ell &&
+        throw(DimensionMismatch("gamma_i must have the same length as the spectra"))
+    gamma_j isa AbstractVector && length(gamma_j) != n_ell &&
+        throw(DimensionMismatch("gamma_j must have the same length as the spectra"))
     return @. gamma_i * C_TE_ij + gamma_j * C_TE_ji + (gamma_i * gamma_j) * C_TT
 end
 
@@ -185,6 +210,10 @@ Compute auto-spectrum EE leakage (i = j):
 ```
 """
 @inline function ee_leakage(C_TT::AbstractVector, C_TE::AbstractVector, gamma::Union{Real, AbstractVector})
+    length(C_TE) == length(C_TT) ||
+        throw(DimensionMismatch("C_TT and C_TE must have the same length"))
+    gamma isa AbstractVector && length(gamma) != length(C_TT) &&
+        throw(DimensionMismatch("gamma must have the same length as the spectra"))
     return @. 2 * gamma * C_TE + (gamma * gamma) * C_TT
 end
 
@@ -198,7 +227,12 @@ D_\\ell^{TE,\\mathrm{obs}}[i, j] = D_\\ell^{TE}[i, j] + \\gamma_j \\cdot D_\\ell
 """
 function apply_te_leakage(D_TE::AbstractArray{<:Any,3}, D_TT::AbstractArray{<:Any,3}, gammas::AbstractVector)
     n_freq = size(D_TE, 1)
-    @assert length(gammas) == n_freq "apply_te_leakage: gammas length must match n_freq"
+    size(D_TE, 2) == n_freq ||
+        throw(DimensionMismatch("D_TE must have square frequency dimensions"))
+    size(D_TT) == size(D_TE) ||
+        throw(DimensionMismatch("D_TT and D_TE must have identical dimensions"))
+    length(gammas) == n_freq ||
+        throw(DimensionMismatch("gammas length must match the frequency dimensions"))
     G_j = reshape(gammas, 1, n_freq, 1)
     return D_TE .+ (G_j .* D_TT)
 end
@@ -210,10 +244,17 @@ Apply map-level leakage across 3D tensors:
 ```math
 D_\\ell^{EE,\\mathrm{obs}}[i, j] = D_\\ell^{EE}[i, j] + \\gamma_i D_\\ell^{TE}[i, j] + \\gamma_j D_\\ell^{TE}[j, i] + \\gamma_i \\gamma_j D_\\ell^{TT}[i, j]
 ```
+`D_TE` must be the underlying unleaked ordered TE tensor. Passing the output of
+`apply_te_leakage` here double-counts part of the response.
 """
 function apply_ee_leakage(D_EE::AbstractArray{<:Any,3}, D_TE::AbstractArray{<:Any,3}, D_TT::AbstractArray{<:Any,3}, gammas::AbstractVector)
     n_freq = size(D_EE, 1)
-    @assert length(gammas) == n_freq "apply_ee_leakage: gammas length must match n_freq"
+    size(D_EE, 2) == n_freq ||
+        throw(DimensionMismatch("D_EE must have square frequency dimensions"))
+    size(D_TE) == size(D_EE) && size(D_TT) == size(D_EE) ||
+        throw(DimensionMismatch("D_EE, D_TE, and D_TT must have identical dimensions"))
+    length(gammas) == n_freq ||
+        throw(DimensionMismatch("gammas length must match the frequency dimensions"))
     G_i = reshape(gammas, n_freq, 1, 1)
     G_j = reshape(gammas, 1, n_freq, 1)
     D_ET = permutedims(D_TE, (2, 1, 3))
@@ -229,6 +270,10 @@ end
 
 Compute the beam perturbation to power spectrum `cl` given beam eigenmodes `modes` (shape `(n_ell, n_modes)`)
 and mode amplitudes `coeffs` (length `n_modes`).
+
+The mode expansion is interpreted as a fractional map-beam perturbation. Modes
+already expressed as power-spectrum or window-function errors use a different
+amplitude convention and must not be passed directly.
 
 - If `linearized` is `true`, return the first-order corrected spectrum:
   ```math

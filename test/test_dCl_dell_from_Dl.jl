@@ -148,6 +148,18 @@ central differences for interior points and boundary extrapolation for endpoints
         secant = (Cℓ_2[2] - Cℓ_2[1]) / (ℓs_2[2] - ℓs_2[1])
         @test dCℓ_dℓ_2 == fill(secant, 2)
         @test dCℓ_dℓ_2[1] == dCℓ_dℓ_2[2]  # Both should be equal (boundary condition)
+
+        @test_throws ArgumentError CMBForegrounds.dCl_dell_from_Dl(
+            [100, 100, 200], [1.0, 2.0, 3.0]
+        )
+    end
+
+    @testset "Unequally spaced grid" begin
+        ℓs = [100.0, 101.0, 200.0]
+        Cℓ = ℓs .^ 2
+        Dℓ = @. ℓs * (ℓs + 1) / (2π) * Cℓ
+        derivative = CMBForegrounds.dCl_dell_from_Dl(ℓs, Dℓ)
+        @test derivative[2] ≈ 2ℓs[2] rtol=1e-12
     end
 
     @testset "Type Stability" begin

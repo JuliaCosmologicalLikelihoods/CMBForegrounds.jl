@@ -40,6 +40,10 @@ D_\\ell^{1 \\times 2}(\\nu_1, \\nu_2) = -\\xi \\sqrt{|A_1 A_2|}
 
 # Fields
 - `shape::S`: Angular cross-template representation (`TemplateShape` or other `AbstractAngularModel`).
+
+Angular parameters such as a power-law slope or template tilt are passed as
+keywords to `correlation_power`. The ell-free convenience evaluator is available
+only for `TemplateShape`, whose multipole grid is stored in the template itself.
 """
 struct TemplateCorrelation{S<:AbstractAngularModel} <: AbstractCorrelationModel
     shape::S
@@ -86,13 +90,16 @@ function correlation_power end
                                    f1_1::Union{Real, AbstractVector},
                                    f1_2::Union{Real, AbstractVector},
                                    f2_1::Union{Real, AbstractVector},
-                                   f2_2::Union{Real, AbstractVector})
-    T_ell = angular_power(corr.shape, ells)
+                                   f2_2::Union{Real, AbstractVector}; angular_args...)
+    n_ell = length(ells)
+    all(f isa Real || length(f) == n_ell for f in (f1_1, f1_2, f2_1, f2_2)) ||
+        throw(DimensionMismatch("vector-valued SED factors must have length equal to ells"))
+    T_ell = angular_power(corr.shape, ells; angular_args...)
     amplitude = -xi * sqrt(abs(A1 * A2))
     return @. amplitude * (f1_1 * f2_2 + f1_2 * f2_1) * T_ell
 end
 
-@inline function correlation_power(corr::TemplateCorrelation,
+@inline function correlation_power(corr::TemplateCorrelation{<:TemplateShape},
                                    xi::Real, A1::Real, A2::Real,
                                    f1_1::Real, f1_2::Real, f2_1::Real, f2_2::Real)
     T_ell = angular_power(corr.shape)
@@ -106,6 +113,9 @@ end
                                    xi::Real,
                                    D1_11::AbstractVector, D1_22::AbstractVector,
                                    D2_11::AbstractVector, D2_22::AbstractVector)
+    n_ell = length(ells)
+    all(length(D) == n_ell for D in (D1_11, D1_22, D2_11, D2_22)) ||
+        throw(DimensionMismatch("all auto-spectra must have length equal to ells"))
     return @. -xi * (sqrt(abs(D1_11 * D2_22)) + sqrt(abs(D1_22 * D2_11)))
 end
 

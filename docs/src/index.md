@@ -28,7 +28,11 @@ tilted = TiltedTemplateShape(template, 3000.0)
 D_tilted = angular_power(tilted, ells; amp=4.0, alpha=-0.2)
 ```
 
-`TemplateShape` uses a dense integer multipole grid. Setting `ell_0=nothing` declares that the supplied template is already normalized.
+`TemplateShape` uses a dense integer multipole grid. Setting `ell_0=nothing`
+declares that the supplied template is already normalized. The vector
+constructor `TiltedTemplateShape(values, ell_0)` preserves the raw template
+normalization. To interpret `amp` as the physical amplitude at the pivot, use
+the normalized `TemplateShape` construction shown above.
 
 ## SEDs and components
 
@@ -49,6 +53,11 @@ The `SkyComponent` constructor takes `(sed, angular)`. Amplitudes, slopes and SE
 ## Passband integration
 
 Use `DeltaBand(nu)` for an effective frequency. Use `make_band(nu, transmission)` for a tabulated response. For differentiable shifts, retain the unnormalized response in `RawBand` and call `shift_and_normalize`.
+
+Any custom `AbstractSED` that implements scalar `sed_weight` automatically
+supports `DeltaBand`, ordinary tabulated `Band`, and explicit chromatic-beam
+integration. Pairwise `eval_component` calls accept bands directly; replacing a
+measured passband with `nu_eff` is therefore unnecessary.
 
 Chromatic responses are supplied as explicit matrices:
 
@@ -84,10 +93,11 @@ The frequency factor contains both leg orderings. At equal frequencies this natu
 - `apply_calibration` supports map gains and supplied pair-gain matrices, with explicit forward/inverse conventions.
 - `add_template` adds supplied systematic templates.
 - `te_leakage`, `et_leakage`, and `ee_leakage` expose T-to-E map-response algebra while retaining ordered TE and ET spectra.
-- `beam_eigenmode_response` and `beam_eigenmode_cross` apply supplied beam modes.
+- `beam_eigenmode_response` and `beam_eigenmode_cross` interpret supplied modes as fractional map-beam perturbations.
 - `apply_ssl` and `apply_aberration` add the corresponding response to an input spectrum.
 
 These functions do not decide whether an uncertainty belongs in the mean or covariance. They also do not recreate effects already corrected in released data.
+`apply_ee_leakage` expects the underlying, unleaked ordered TE tensor.
 
 ## Spectrum conventions
 

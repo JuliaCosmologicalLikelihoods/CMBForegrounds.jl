@@ -147,7 +147,8 @@ using Random
 
         # Components with chromatic beams
         # tSZ with tilt
-        tsz_comp = SkyComponent(ThermalSZSED(143.0), TiltedTemplateShape(tsz_template, 3000.0))
+        tsz_shape = TemplateShape(tsz_template; ell_0=3000)
+        tsz_comp = SkyComponent(ThermalSZSED(143.0), TiltedTemplateShape(tsz_shape, 3000.0))
         D_tsz = eval_component(tsz_comp, ells, bands, chrom_beams, 4.5; alpha=-0.1)
 
         # CIB clustered

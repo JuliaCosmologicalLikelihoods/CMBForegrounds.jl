@@ -65,6 +65,12 @@ weight_ell = sed_weight(sed, band, beam, 1.5)
 
 `RawBand` and `shift_and_normalize` provide differentiable passband shifts. The chromatic beam is supplied as the already-evaluated matrix `beam[ell_index, nu_index]`; this package does not prescribe a survey beam model.
 
+Pairwise `eval_component` calls accept scalar frequencies, `DeltaBand`s, and
+tabulated `Band`s directly. A custom `AbstractSED` needs only a scalar
+`sed_weight` method; ordinary and chromatic passband lifting is provided by the
+package. Frequency grids must be finite and strictly increasing, and undefined
+passband or chromatic normalizations raise an error.
+
 ## Correlated components
 
 ```julia
@@ -102,8 +108,10 @@ Response provenance remains the caller's responsibility. Do not apply a correcti
 - Angular evaluators return `D_ell`; `PowerLawShape` therefore takes the `D_ell` exponent directly.
 - `PoissonShape` uses exact `ell(ell+1)` scaling, while legacy `shot_noise_power` intentionally implements an `ell^2` approximation.
 - `TemplateShape` represents a dense integer multipole grid beginning at `ell_min`. `ell_0=nothing` means the input is already normalized.
+- `TiltedTemplateShape(values, ell_0)` preserves the raw template normalization; wrap a pivot-normalized `TemplateShape` when `amp` denotes the physical pivot amplitude.
 - `RadioSED(...; convention=:flux)` takes a flux-density index, while `convention=:rj` takes an RJ-temperature index. They obey `beta_rj = beta_flux - 2`.
 - `:forward` calibration multiplies by gains; `:inverse` divides by them.
+- Beam eigenmodes are fractional map-beam perturbations, and EE leakage takes the underlying unleaked ordered TE tensor.
 - Fixed versus sampled parameters and all priors belong to the likelihood.
 
 ## Verification scope

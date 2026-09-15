@@ -19,7 +19,7 @@ Survey-specific rrules (e.g. `theory_vector_core` which depends on
 `ACTData`) live in their downstream packages and are *not* included here.
 """
 
-using ChainRulesCore: rrule, NoTangent, unthunk
+using ChainRulesCore: rrule, NoTangent, ProjectTo, unthunk
 using LinearAlgebra: dot, transpose
 
 # ------------------------------------------------------------------ #
@@ -96,12 +96,14 @@ function ChainRulesCore.rrule(::typeof(factorized_cross),
     n_freq, n_ell = size(F)
     @assert length(cl) == n_ell
     D = factorized_cross(F, cl)
+    project_F = ProjectTo(F)
+    project_cl = ProjectTo(cl)
 
     function factorized_cross_matrix_pullback(D̄_thunked)
         D̄ = unthunk(D̄_thunked)
         T = promote_type(eltype(D̄), eltype(F), eltype(cl))
-        dF̄  = similar(F, T)
-        dcl̄ = similar(cl, T)
+        dF̄  = Matrix{T}(undef, size(F))
+        dcl̄ = Vector{T}(undef, length(cl))
 
         @inbounds for ℓ in 1:n_ell
             cl_ℓ = cl[ℓ]
@@ -112,7 +114,7 @@ function ChainRulesCore.rrule(::typeof(factorized_cross),
             dcl̄[ℓ] = dot(F_ℓ, D̄_ℓ * F_ℓ)
         end
 
-        return NoTangent(), dF̄, dcl̄
+        return NoTangent(), project_F(dF̄), project_cl(dcl̄)
     end
 
     return D, factorized_cross_matrix_pullback
@@ -129,14 +131,17 @@ function ChainRulesCore.rrule(::typeof(factorized_cross_te),
     @assert size(FE) == (n_freq, n_ell)
     @assert length(cl) == n_ell
     D = factorized_cross_te(FT, FE, cl)
+    project_FT = ProjectTo(FT)
+    project_FE = ProjectTo(FE)
+    project_cl = ProjectTo(cl)
 
     function factorized_cross_te_matrix_pullback(D̄_thunked)
         D̄ = unthunk(D̄_thunked)
 
         T = promote_type(eltype(D̄), eltype(FT), eltype(FE), eltype(cl))
-        dFT̄ = similar(FT, T)
-        dFĒ = similar(FE, T)
-        dcl̄ = similar(cl, T)
+        dFT̄ = Matrix{T}(undef, size(FT))
+        dFĒ = Matrix{T}(undef, size(FE))
+        dcl̄ = Vector{T}(undef, length(cl))
 
         @inbounds for ℓ in 1:n_ell
             cl_ℓ = cl[ℓ]
@@ -149,7 +154,7 @@ function ChainRulesCore.rrule(::typeof(factorized_cross_te),
             dcl̄[ℓ] = dot(FT_ℓ, D̄_ℓ * FE_ℓ)
         end
 
-        return NoTangent(), dFT̄, dFĒ, dcl̄
+        return NoTangent(), project_FT(dFT̄), project_FE(dFĒ), project_cl(dcl̄)
     end
 
     return D, factorized_cross_te_matrix_pullback

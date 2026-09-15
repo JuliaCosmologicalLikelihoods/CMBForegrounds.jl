@@ -101,6 +101,10 @@ D_\\ell = \\mathrm{amp} \\cdot T_\\ell \\cdot \\left(\\frac{\\ell}{\\ell_0}\\rig
 # Fields
 - `shape::S`: Base angular model (typically a `TemplateShape`).
 - `ell_0::T`: Pivot multipole for the tilt factor (default 3000).
+
+The vector constructor preserves the supplied template normalization. To make
+`amp` the value at `ell_0`, first construct a normalized `TemplateShape` and
+pass that shape to `TiltedTemplateShape`.
 """
 struct TiltedTemplateShape{S<:AbstractAngularModel, T<:Real} <: AbstractAngularModel
     shape::S
@@ -151,8 +155,11 @@ end
 end
 
 @inline function _template_norm(model::TemplateShape)
-    return model.ell_0 === nothing ? one(eltype(model.template)) :
-           model.template[model.ell_0 - model.ell_min + 1]
+    model.ell_0 === nothing && return one(eltype(model.template))
+    norm = model.template[model.ell_0 - model.ell_min + 1]
+    isfinite(norm) && !iszero(norm) ||
+        throw(DomainError(norm, "template normalization must be finite and nonzero"))
+    return norm
 end
 
 @inline function _template_val(model::TemplateShape, ell::AbstractVector)

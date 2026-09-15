@@ -41,6 +41,16 @@ end
 # RawBand — un-normalized passband for bandpass-shift support          #
 # ------------------------------------------------------------------ #
 
+function _validate_band_inputs(nu::AbstractVector, bp::AbstractVector)
+    isempty(nu) && throw(ArgumentError("frequency grid cannot be empty"))
+    length(nu) == length(bp) ||
+        throw(DimensionMismatch("frequency and passband vectors must have the same length"))
+    all(isfinite, nu) || throw(ArgumentError("frequency grid must be finite"))
+    all(isfinite, bp) || throw(ArgumentError("passband values must be finite"))
+    all(diff(nu) .> 0) || throw(ArgumentError("frequency grid must be strictly increasing"))
+    return nothing
+end
+
 """
     RawBand{T<:Real}
 
@@ -56,6 +66,11 @@ Fields:
 struct RawBand{T<:Real}
     nu :: Vector{T}
     bp :: Vector{T}
+
+    function RawBand(nu::Vector{T}, bp::Vector{T}) where T<:Real
+        _validate_band_inputs(nu, bp)
+        return new{T}(nu, bp)
+    end
 end
 
 """
@@ -117,12 +132,15 @@ with `cmb2bb(ν) ∝ ∂B_ν/∂T`. A length-1 `nu` produces a monochromatic
 (Dirac-delta) band.
 """
 function make_band(nu::AbstractVector{T}, bp::AbstractVector{T}) where T<:Real
+    _validate_band_inputs(nu, bp)
     if length(nu) == 1
         # Monochromatic: Dirac-delta passband, no integration
         return Band{T}(Vector{T}(nu), Vector{T}(bp), nu[1], true)
     end
     w       = bp .* cmb2bb.(nu)
     norm    = trapz(nu, w)
+    isfinite(norm) && !iszero(norm) ||
+        throw(DomainError(norm, "passband normalization must be finite and nonzero"))
     norm_bp = w ./ norm
     nu_eff  = nu[argmax(bp)]   # approximate center; exact value only for display
     return Band{T}(Vector{T}(nu), norm_bp, T(nu_eff), false)
@@ -173,15 +191,7 @@ function integrate_sed(sed_fn, band::Band{T}) where {T<:Real}
         return sed_fn(νmono)
     end
 
-    ν1::T = band.nu[1]
-    y1 = sed_fn(ν1) * band.norm_bp[1]
-    y = Vector{typeof(y1)}(undef, length(band.nu))
-    y[1] = y1
-    @inbounds for i in 2:length(band.nu)
-        ν::T = band.nu[i]
-        y[i] = sed_fn(ν) * band.norm_bp[i]
-    end
-    return trapz(band.nu, y)
+    return trapz(band.nu, sed_fn.(band.nu) .* band.norm_bp)
 end
 
 """
@@ -207,18 +217,8 @@ Evaluate a SED over an array of `Band`s, returning a vector of length
 `sed_fn` is a function ν → SED(ν) (scalar → scalar).
 """
 function eval_sed_bands(sed_fn, bands::AbstractVector{Band{T}}) where {T<:Real}
-    n = length(bands)
-    @assert n > 0 "eval_sed_bands: empty band collection"
-
-    b1::Band{T} = bands[1]
-    v1 = integrate_sed(sed_fn, b1)
-    vals = Vector{typeof(v1)}(undef, n)
-    vals[1] = v1
-    @inbounds for i in 2:n
-        b::Band{T} = bands[i]
-        vals[i] = integrate_sed(sed_fn, b)
-    end
-    return vals
+    isempty(bands) && throw(ArgumentError("band collection cannot be empty"))
+    return [integrate_sed(sed_fn, band) for band in bands]
 end
 
 @inline integrate_sed(sed_fn, band::DeltaBand) = sed_fn(band.nu_eff)
@@ -226,6 +226,7 @@ end
     tsz_sed(band.nu_eff, nu_0, T_CMB)
 
 function eval_sed_bands(sed_fn, bands::AbstractVector{<:AbstractBand})
+    isempty(bands) && throw(ArgumentError("band collection cannot be empty"))
     return [integrate_sed(sed_fn, b) for b in bands]
 end
 
@@ -294,6 +295,8 @@ function integrate_chromatic_sed(sed_fn, band::Band{T}, chromatic_beam::Chromati
     weights = trapz_weights .* band.norm_bp
     numerator = chromatic_beam.beam * (weights .* sed_vals)
     denominator = chromatic_beam.beam * weights
+    all(isfinite, denominator) && all(!iszero, denominator) ||
+        throw(DomainError(denominator, "chromatic normalization must be finite and nonzero"))
     return numerator ./ denominator
 end
 

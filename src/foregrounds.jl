@@ -439,7 +439,10 @@ Converts from ``D_\\ell`` to ``C_\\ell`` derivative using:
 \\frac{\\mathrm{d}C_\\ell}{\\mathrm{d}\\ell} = \\frac{\\mathrm{d}}{\\mathrm{d}\\ell}\\left[D_\\ell \\frac{2\\pi}{\\ell(\\ell+1)}\\right]
 ```
 
-The derivative is computed using central differences for interior points.
+The derivative is computed with a three-point formula that supports unequal
+multipole spacing. The grid must be strictly increasing. For two points, both
+outputs use the secant slope; for larger grids, endpoint values copy the nearest
+interior derivative.
 
 # Arguments
 - `ℓs`: Multipoles vector
@@ -452,6 +455,7 @@ function dCl_dell_from_Dl(ℓs::AbstractVector, Dℓ::AbstractVector)
     @assert length(ℓs) == length(Dℓ) "ells and Dℓ must have the same length"
     n = length(Dℓ)
     @assert n ≥ 2 "Need at least two multipoles to form a derivative"
+    all(diff(ℓs) .> 0) || throw(ArgumentError("multipoles must be strictly increasing"))
 
     # Convert Dℓ → Cℓ without forcing Float64; promotion happens automatically.
     Cℓ = @. Dℓ * (2π) / (ℓs * (ℓs + 1))
@@ -468,7 +472,11 @@ function dCl_dell_from_Dl(ℓs::AbstractVector, Dℓ::AbstractVector)
     @inbounds begin
         # Central differences for interior points
         for i in 2:n-1
-            dCℓ[i] = (Cℓ[i+1] - Cℓ[i-1]) / (ℓs[i+1] - ℓs[i-1])
+            h_prev = ℓs[i] - ℓs[i-1]
+            h_next = ℓs[i+1] - ℓs[i]
+            dCℓ[i] = -h_next * Cℓ[i-1] / (h_prev * (h_prev + h_next)) +
+                      (h_next - h_prev) * Cℓ[i] / (h_prev * h_next) +
+                      h_prev * Cℓ[i+1] / (h_next * (h_prev + h_next))
         end
 
         dCℓ[1] = dCℓ[2]

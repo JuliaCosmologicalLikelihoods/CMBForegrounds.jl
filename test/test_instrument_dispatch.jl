@@ -81,6 +81,12 @@ using JET
         g_fd = DI.gradient(loss_amp, AutoForwardDiff(), [amp])
         g_mc = DI.gradient(loss_amp, AutoMooncake(config=nothing), [amp])
         @test isapprox(g_fd, g_mc; rtol=1e-6)
+
+        @test_throws DimensionMismatch add_template(cl, template[1:end-1], amp)
+        @test_throws DimensionMismatch add_template(D2, template[1:end-1], amp_mat)
+        @test_throws DimensionMismatch add_template(D2, template, ones(1, 1))
+        @test_throws DimensionMismatch add_template(ones(2, 1, n_ell), template,
+                                                     ones(2, 1))
     end
 
     # ----------------------------------------------------------------- #
@@ -140,6 +146,42 @@ using JET
         g_fd = DI.gradient(loss_leak, AutoForwardDiff(), [0.05])
         g_mc = DI.gradient(loss_leak, AutoMooncake(config=nothing), [0.05])
         @test isapprox(g_fd, g_mc; rtol=1e-6)
+
+        @test_throws DimensionMismatch te_leakage(C_TT, gamma_curve[1:end-1])
+        @test_throws DimensionMismatch et_leakage(C_TT, gamma_curve[1:end-1])
+        @test_throws DimensionMismatch ee_leakage(
+            C_TT, C_TE[1:end-1], C_ET, gamma1, gamma2
+        )
+        @test_throws DimensionMismatch ee_leakage(
+            C_TT, C_TE, gamma_curve[1:end-1]
+        )
+        @test_throws DimensionMismatch ee_leakage(
+            C_TT, C_TE, C_ET, gamma_curve[1:end-1], gamma_curve
+        )
+        @test_throws DimensionMismatch ee_leakage(
+            C_TT, C_TE, C_ET, gamma_curve, gamma_curve[1:end-1]
+        )
+        @test_throws DimensionMismatch apply_te_leakage(
+            zeros(2, 2, 1), ones(2, 2, 3), gammas
+        )
+        @test_throws DimensionMismatch apply_te_leakage(
+            zeros(2, 1, 1), zeros(2, 1, 1), gammas
+        )
+        @test_throws DimensionMismatch apply_te_leakage(
+            zeros(2, 2, 1), zeros(2, 2, 1), [0.1]
+        )
+        @test_throws DimensionMismatch apply_ee_leakage(
+            zeros(2, 2, 1), zeros(2, 2, 1), ones(2, 2, 3), gammas
+        )
+        @test_throws DimensionMismatch apply_ee_leakage(
+            zeros(2, 1, 1), zeros(2, 1, 1), zeros(2, 1, 1), gammas
+        )
+        @test_throws DimensionMismatch apply_ee_leakage(
+            zeros(2, 2, 1), zeros(2, 2, 1), zeros(2, 2, 1), [0.1]
+        )
+        @test size(apply_te_leakage(
+            zeros(1, 1, 1), ones(1, 1, 1), [0.1]
+        )) == (1, 1, 1)
     end
 
     # ----------------------------------------------------------------- #

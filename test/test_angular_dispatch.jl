@@ -149,6 +149,13 @@ using Random
         @test DI.gradient(g_values, AutoForwardDiff(), [1.0, 2.0]) ≈ expected
         @test DI.gradient(g_values, AutoMooncake(; config=nothing), [1.0, 2.0]) ≈ expected
         @test DI.gradient(g_values, AutoZygote(), [1.0, 2.0]) ≈ expected
+
+        @test_throws DomainError angular_power(
+            TemplateShape([0.0, 1.0]; ell_0=2, ell_min=2), [2, 3]
+        )
+        @test_throws DomainError angular_power(
+            TemplateShape([Inf, 1.0]; ell_0=2, ell_min=2), [2, 3]
+        )
     end
 
     # ----------------------------------------------------------------- #
