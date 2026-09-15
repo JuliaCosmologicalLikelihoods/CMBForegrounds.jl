@@ -159,12 +159,9 @@ function correlated_cross(f::AbstractMatrix{<:Real}, cl::AbstractArray{<:Real,3}
     size(cl, 1) == n_comp && size(cl, 2) == n_comp ||
         throw(DimensionMismatch("cl component dimensions must match the first dimension of f"))
     n_ell          = size(cl, 3)
-    # Pure sum — no mutation — compatible with ForwardDiff and Mooncake
-    return sum(
-        reshape(f[k, :] .* f[n, :]', n_freq, n_freq, 1) .*
-        reshape(cl[k, n, :], 1, 1, n_ell)
-        for k in 1:n_comp, n in 1:n_comp
-    )
+    mixing = kron(transpose(f), transpose(f))
+    result = mixing * reshape(cl, n_comp * n_comp, n_ell)
+    return reshape(result, n_freq, n_freq, n_ell)
 end
 
 # ------------------------------------------------------------------ #

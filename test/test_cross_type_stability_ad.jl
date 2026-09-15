@@ -10,23 +10,26 @@ Each function is checked for:
      element-wise composition exactly (rtol = 1e-12).
   2. Type stability — `JET.@test_opt` on a representative call.
   3. AD agreement — ForwardDiff vs Mooncake gradients of a scalar
-     reduction must agree (rtol = 1e-10).
+     reduction must agree (rtol = 1e-10), with a targeted Zygote check for a
+     fused assembler.
 
 The Mooncake path goes through the `@from_chainrules` registrations in
 `CMBForegroundsMooncakeExt`, so this also tests that the extension is
 correctly wired to the rrules in `src/rrules.jl`.
 
-Zygote is intentionally excluded — the fused assemblers use
-`Array{T}(undef, n_freq, n_freq, n_ell)` + scalar in-place writes for
-performance, which Zygote cannot differentiate. This matches the design
-in ACT/SPT/Hillipop where only ForwardDiff and Mooncake are used.
+The fused assemblers return fresh arrays and do not mutate caller inputs.
+Their ChainRules rules support Zygote; Mooncake remains the production reverse
+backend exercised across every fused assembler here.
 """
 
 using JET
 using ADTypes
+using ChainRulesCore
 import DifferentiationInterface as DI
 using ForwardDiff
+using LinearAlgebra
 using Mooncake
+using Zygote
 using Random
 
 
@@ -151,6 +154,21 @@ end
     grad_fd = DI.gradient(g_cl, AutoForwardDiff(), cl)
     grad_mk = DI.gradient(g_cl, AutoMooncake(; config=nothing), cl)
     @test grad_fd ≈ grad_mk rtol=1e-10
+
+    weights = randn(n_freq, n_freq, n_ell)
+    function weighted_loss(v)
+        f_v = reshape(v[1:n_comp * n_freq], n_comp, n_freq)
+        cl_v = reshape(v[n_comp * n_freq + 1:end], n_comp, n_comp, n_ell)
+        return dot(weights, correlated_cross(f_v, cl_v))
+    end
+    v0 = vcat(vec(f), vec(cl))
+    direction = randn(length(v0))
+    direction ./= norm(direction)
+    gradient = DI.gradient(weighted_loss, AutoMooncake(; config=nothing), v0)
+    epsilon = 1e-6
+    finite_difference = (weighted_loss(v0 .+ epsilon .* direction) -
+                         weighted_loss(v0 .- epsilon .* direction)) / (2epsilon)
+    @test dot(gradient, direction) ≈ finite_difference rtol=1e-6
 end
 
 
@@ -291,6 +309,7 @@ end
     grad_fd = DI.gradient(g_EE, AutoForwardDiff(), v0)
     grad_mk = DI.gradient(g_EE, AutoMooncake(; config=nothing), v0)
     @test grad_fd ≈ grad_mk rtol=1e-10
+    @test grad_fd ≈ DI.gradient(g_EE, AutoZygote(), v0) rtol=1e-10
 end
 
 
@@ -345,6 +364,9 @@ end
     @test_throws DimensionMismatch factorized_cross_te(rand(2), rand(3), rand(4))
     @test_throws DimensionMismatch factorized_cross_te(rand(2, 3), rand(3, 3), rand(3))
     @test_throws DimensionMismatch factorized_cross_te(rand(2, 3), rand(2, 3), rand(4))
+    @test_throws DimensionMismatch ChainRulesCore.rrule(
+        factorized_cross_te, rand(2), rand(3), rand(4)
+    )
 
     f = rand(2, 3)
     @test_throws DimensionMismatch correlated_cross(f, rand(1, 1, 4))

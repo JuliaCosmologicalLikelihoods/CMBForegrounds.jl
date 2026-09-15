@@ -10,7 +10,8 @@ implementations in cross.jl unchanged.
 Each rrule:
   1. Computes the forward result by calling the existing kernel.
   2. Returns a pullback closure that maps the output cotangent back to
-     input cotangents using BLAS calls instead of element-wise scalar ops.
+     input cotangents using BLAS for achromatic contractions and direct loops
+     for chromatic contractions.
 
 All incoming cotangents are `unthunk`ed defensively because Mooncake passes
 `InplaceableThunk`s into pullbacks.
@@ -59,10 +60,9 @@ function ChainRulesCore.rrule(::typeof(factorized_cross_te),
                               fT::AbstractVector{<:Real},
                               fE::AbstractVector{<:Real},
                               cl::AbstractVector{<:Real})
-    n_freq = length(fT)
-    @assert length(fE) == n_freq
-    n_ell  = length(cl)
     D      = factorized_cross_te(fT, fE, cl)
+    n_freq = length(fT)
+    n_ell  = length(cl)
 
     function factorized_cross_te_pullback(D̄_thunked)
         D̄      = unthunk(D̄_thunked)
@@ -178,18 +178,15 @@ function ChainRulesCore.rrule(::typeof(correlated_cross),
         D̄  = unthunk(D̄_thunked)
         T  = promote_type(eltype(D̄), eltype(f), eltype(cl))
         df̄  = zeros(T, n_comp, n_freq)
-        dcl̄ = zeros(T, n_comp, n_comp, n_ell)
+        mixing = kron(transpose(f), transpose(f))
+        dcl̄ = reshape(transpose(mixing) * reshape(D̄, n_freq * n_freq, n_ell),
+                       n_comp, n_comp, n_ell)
 
-        @inbounds for ℓ in 1:n_ell
-            D̄ℓ = @view D̄[:, :, ℓ]
-            Cℓ = @view cl[:, :, ℓ]
-
-            # df̄ contributions (two terms — one per appearance of f)
-            df̄ .+= Cℓ           * (f * transpose(D̄ℓ))
-            df̄ .+= transpose(Cℓ) * (f * D̄ℓ)
-
-            # dcl̄[:,:,ℓ] = f * D̄_ℓ * f'
-            dcl̄[:, :, ℓ] = f * D̄ℓ * transpose(f)
+        @inbounds for ℓ in 1:n_ell, n in 1:n_comp, k in 1:n_comp,
+                         j in 1:n_freq, i in 1:n_freq
+            weight = D̄[i, j, ℓ]
+            df̄[k, i] += weight * f[n, j] * cl[k, n, ℓ]
+            df̄[n, j] += weight * f[k, i] * cl[k, n, ℓ]
         end
 
         return NoTangent(), df̄, dcl̄
