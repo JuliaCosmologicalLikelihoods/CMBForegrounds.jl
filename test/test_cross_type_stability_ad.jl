@@ -136,12 +136,7 @@ end
         @test D[i, j, ℓ] ≈ ref
     end
 
-    # JET 0.9.x (Julia 1.10) detects a spurious runtime dispatch inside
-    # sum(generator over ProductIterator) in Base — not a real code issue.
-    # The check is clean on JET ≥ 0.11 (Julia ≥ 1.11).
-    if VERSION >= v"1.11"
-        JET.@test_opt correlated_cross(f, cl)
-    end
+    JET.@test_opt correlated_cross(f, cl)
 
     # AD wrt f
     g_f(x) = sum(correlated_cross(x, cl))
@@ -155,20 +150,31 @@ end
     grad_mk = DI.gradient(g_cl, AutoMooncake(; config=nothing), cl)
     @test grad_fd ≈ grad_mk rtol=1e-10
 
-    weights = randn(n_freq, n_freq, n_ell)
+    rng = MersenneTwister(0xC0FFEE)
+    weights = randn(rng, n_freq, n_freq, n_ell)
     function weighted_loss(v)
         f_v = reshape(v[1:n_comp * n_freq], n_comp, n_freq)
         cl_v = reshape(v[n_comp * n_freq + 1:end], n_comp, n_comp, n_ell)
         return dot(weights, correlated_cross(f_v, cl_v))
     end
     v0 = vcat(vec(f), vec(cl))
-    direction = randn(length(v0))
+    direction = randn(rng, length(v0))
     direction ./= norm(direction)
     gradient = DI.gradient(weighted_loss, AutoMooncake(; config=nothing), v0)
     epsilon = 1e-6
     finite_difference = (weighted_loss(v0 .+ epsilon .* direction) -
                          weighted_loss(v0 .- epsilon .* direction)) / (2epsilon)
-    @test dot(gradient, direction) ≈ finite_difference rtol=1e-6
+    @test dot(gradient, direction) ≈ finite_difference rtol=1e-6 atol=1e-9
+
+    diagonal_f = Diagonal([1.0, 2.0])
+    diagonal_cl = ones(2, 2, 1)
+    D_diagonal, pullback = ChainRulesCore.rrule(
+        correlated_cross, diagonal_f, diagonal_cl
+    )
+    _, df_diagonal, dcl_diagonal = pullback(ones(size(D_diagonal)))
+    @test df_diagonal isa Diagonal
+    @test Matrix(df_diagonal) == Matrix(Diagonal([6.0, 6.0]))
+    @test dcl_diagonal == ones(2, 2, 1) .* [1.0 2.0; 2.0 4.0]
 end
 
 

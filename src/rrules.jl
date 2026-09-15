@@ -173,23 +173,28 @@ function ChainRulesCore.rrule(::typeof(correlated_cross),
     D = correlated_cross(f, cl)
     n_comp, n_freq = size(f)
     n_ell = size(cl, 3)
+    project_f = ProjectTo(f)
+    project_cl = ProjectTo(cl)
 
     function correlated_cross_pullback(D̄_thunked)
         D̄  = unthunk(D̄_thunked)
         T  = promote_type(eltype(D̄), eltype(f), eltype(cl))
         df̄  = zeros(T, n_comp, n_freq)
         mixing = kron(transpose(f), transpose(f))
-        dcl̄ = reshape(transpose(mixing) * reshape(D̄, n_freq * n_freq, n_ell),
-                       n_comp, n_comp, n_ell)
+        cl_flat = reshape(cl, n_comp * n_comp, n_ell)
+        D̄_flat = reshape(D̄, n_freq * n_freq, n_ell)
+        dcl̄ = reshape(transpose(mixing) * D̄_flat, n_comp, n_comp, n_ell)
+        dmixing = reshape(D̄_flat * transpose(cl_flat),
+                          n_freq, n_freq, n_comp, n_comp)
 
-        @inbounds for ℓ in 1:n_ell, n in 1:n_comp, k in 1:n_comp,
+        @inbounds for n in 1:n_comp, k in 1:n_comp,
                          j in 1:n_freq, i in 1:n_freq
-            weight = D̄[i, j, ℓ]
-            df̄[k, i] += weight * f[n, j] * cl[k, n, ℓ]
-            df̄[n, j] += weight * f[k, i] * cl[k, n, ℓ]
+            weight = dmixing[i, j, k, n]
+            df̄[k, i] += weight * f[n, j]
+            df̄[n, j] += weight * f[k, i]
         end
 
-        return NoTangent(), df̄, dcl̄
+        return NoTangent(), project_f(df̄), project_cl(dcl̄)
     end
 
     return D, correlated_cross_pullback
