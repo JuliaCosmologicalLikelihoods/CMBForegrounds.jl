@@ -230,8 +230,7 @@ using Random
         end
         
         @testset "Rayleigh-Jeans Limit Verification (x << 1)" begin
-            # R-J limit: g(x) → x - 2 for small x
-            # Therefore ratio → (x - 2)/(x0 - 2)
+            # R-J limit: g(x) = -2 + x²/6 + O(x⁴)
             
             # Test case 1: Both frequencies in R-J regime
             ν, ν0, T = 0.1, 0.05, 50.0  # Low freq, high temp
@@ -240,8 +239,8 @@ using Random
             @test x0 < 0.1
             
             actual_ratio = CMBForegrounds.tsz_g_ratio(ν, ν0, T)
-            rj_approx = (x - 2) / (x0 - 2)
-            @test actual_ratio ≈ rj_approx rtol=0.1
+            rj_approx = (-2 + x^2 / 6) / (-2 + x0^2 / 6)
+            @test actual_ratio ≈ rj_approx rtol=1e-10
             
             # Test case 2: Very deep R-J limit
             ν, ν0, T = 0.01, 0.005, 100.0
@@ -249,8 +248,8 @@ using Random
             @test x < 0.01
             
             actual_ratio = CMBForegrounds.tsz_g_ratio(ν, ν0, T)
-            rj_approx = (x - 2) / (x0 - 2)
-            @test actual_ratio ≈ rj_approx rtol=0.05
+            rj_approx = (-2 + x^2 / 6) / (-2 + x0^2 / 6)
+            @test actual_ratio ≈ rj_approx rtol=1e-10
             
             # Test case 3: When both x and x0 are very small, both g ≈ -2
             ν, ν0, T = 0.001, 0.0005, 200.0
@@ -355,20 +354,6 @@ using Random
                 ratio = CMBForegrounds.tsz_g_ratio(ν, 150.0, T_CMB)
                 @test isfinite(ratio)
                 @test abs(ratio) < 10.0  # Reasonable range
-            end
-        end
-        
-        @testset "Realistic Cluster Temperatures" begin
-            # Test with realistic galaxy cluster temperatures
-            cluster_temps = [5.0, 8.0, 12.0, 15.0, 20.0]  # keV converted to K
-            
-            for T_cluster in cluster_temps
-                for ν in [100.0, 150.0, 220.0]
-                    ratio = CMBForegrounds.tsz_g_ratio(ν, 150.0, T_cluster)
-                    @test isfinite(ratio)
-                    # High temperature changes the spectral dependence
-                    @test abs(ratio) < 50.0  # Still reasonable
-                end
             end
         end
         

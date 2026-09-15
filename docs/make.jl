@@ -7,16 +7,16 @@ makedocs(;
     modules=[CMBForegrounds],
     authors="Marco Bonici <bonici.marco@gmail.com> and contributors",
     sitename="CMBForegrounds.jl",
+    repo=Documenter.Remotes.GitHub("JuliaCosmologicalLikelihoods", "CMBForegrounds.jl"),
     format=Documenter.HTML(;
         canonical="https://juliacosmologicallikelihoods.github.io/CMBForegrounds.jl",
-        edit_link="main",
+        edit_link="develop",
         assets=String[],
     ),
     pages=[
         "Home" => "index.md",
         "API Reference" => "api.md",
     ],
-    warnonly=[:missing_docs],  # Don't error on undocumented functions, just warn
 )
 
 deploydocs(;

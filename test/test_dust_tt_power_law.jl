@@ -125,8 +125,7 @@ where s1, s2 are the CIB modified blackbody SED weights for frequencies ν1, ν2
         # Cross-spectrum should be geometric mean of auto-spectra weights
         Dℓ_auto1 = CMBForegrounds.dust_tt_power_law(ℓs, A_pivot, α, β, 143.0, 143.0, T_dust, ν0)[1]
         Dℓ_auto2 = CMBForegrounds.dust_tt_power_law(ℓs, A_pivot, α, β, 217.0, 217.0, T_dust, ν0)[1]
-        # Note: This is not exactly geometric mean due to the way SED weights work
-        @test Dℓ_cross > 0  # Just check it's sensible
+        @test Dℓ_cross ≈ sqrt(Dℓ_auto1 * Dℓ_auto2)
     end
 
     @testset "Default Parameters" begin

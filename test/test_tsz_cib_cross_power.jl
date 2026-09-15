@@ -229,7 +229,7 @@ D_ℓ = -ξ * (sqrt(|D_ℓ^{tSZ,11} * D_ℓ^{CIB,22}|) + sqrt(|D_ℓ^{tSZ,22} * 
         end
 
         # All should be different (unless by chance they're equal)
-        @test length(unique(results)) >= 1  # At least one unique result
+        @test length(unique(results)) > 1
     end
 
     @testset "Pivot Scale Effects" begin
