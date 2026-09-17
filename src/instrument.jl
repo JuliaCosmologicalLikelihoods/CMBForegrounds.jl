@@ -351,3 +351,22 @@ D_\\ell^\\mathrm{corrected} = D_\\ell + \\mathrm{aberration\\_response}(\\ell, A
 @inline function apply_aberration(ells::AbstractVector, ab_coeff::Real, Dℓ::AbstractVector)
     return Dℓ .+ aberration_response(ells, ab_coeff, Dℓ)
 end
+r"""
+    window_convolution(window, spectrum)
+
+Convolve a theory spectrum with a fixed bandpower window matrix. `window` has
+shape `(n_ell, n_bin)` and `spectrum` has length `n_ell`; the result has one
+entry per bandpower:
+
+```math
+m_b = \sum_\ell W_{\ell b} D_\ell.
+```
+
+The window is released experimental data rather than a model parameter. Its
+reverse-mode rule therefore propagates derivatives to `spectrum` only.
+"""
+@inline function window_convolution(window::AbstractMatrix, spectrum::AbstractVector)
+    size(window, 1) == length(spectrum) ||
+        throw(DimensionMismatch("window first dimension must match spectrum length"))
+    return transpose(window) * spectrum
+end

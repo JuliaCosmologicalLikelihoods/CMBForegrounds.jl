@@ -23,6 +23,79 @@ Survey-specific rrules (e.g. `theory_vector_core` which depends on
 using ChainRulesCore: rrule, NoTangent, ProjectTo, unthunk
 using LinearAlgebra: dot, transpose
 
+function ChainRulesCore.rrule(::typeof(window_convolution),
+                              window::AbstractMatrix, spectrum::AbstractVector)
+    projection = window_convolution(window, spectrum)
+    project_spectrum = ProjectTo(spectrum)
+
+    function window_convolution_pullback(projection̄_thunked)
+        projection̄ = unthunk(projection̄_thunked)
+        spectrum̄ = project_spectrum(window * projection̄)
+        return NoTangent(), NoTangent(), spectrum̄
+    end
+
+    return projection, window_convolution_pullback
+end
+
+function ChainRulesCore.rrule(::typeof(_fixed_beam_product),
+                              beam::AbstractMatrix, values::AbstractVector)
+    output = beam * values
+    project_values = ProjectTo(values)
+    function fixed_beam_product_pullback(output̄_thunked)
+        output̄ = unthunk(output̄_thunked)
+        return NoTangent(), NoTangent(), project_values(transpose(beam) * output̄)
+    end
+    return output, fixed_beam_product_pullback
+end
+
+function ChainRulesCore.rrule(::typeof(_chromatic_ratio),
+                              beam::AbstractMatrix, weights::AbstractVector,
+                              sed_values::AbstractVector, denominator::AbstractVector)
+    weighted_sed = weights .* sed_values
+    numerator = beam * weighted_sed
+    output = numerator ./ denominator
+    project_weights = ProjectTo(weights)
+    project_sed_values = ProjectTo(sed_values)
+    project_denominator = ProjectTo(denominator)
+
+    function chromatic_ratio_pullback(output̄_thunked)
+        output̄ = unthunk(output̄_thunked)
+        scaled_output̄ = output̄ ./ denominator
+        weighted_sed̄ = transpose(beam) * scaled_output̄
+        weights̄ = project_weights(sed_values .* weighted_sed̄)
+        sed_values̄ = project_sed_values(weights .* weighted_sed̄)
+        denominator̄ = project_denominator(-scaled_output̄ .* output)
+        beam̄ = scaled_output̄ * transpose(weighted_sed)
+        return NoTangent(), beam̄, weights̄, sed_values̄, denominator̄
+    end
+
+    return output, chromatic_ratio_pullback
+end
+
+
+function ChainRulesCore.rrule(::typeof(_fixed_chromatic_ratio),
+                              beam::AbstractMatrix, weights::AbstractVector,
+                              sed_values::AbstractVector, denominator::AbstractVector)
+    weighted_sed = weights .* sed_values
+    numerator = beam * weighted_sed
+    output = numerator ./ denominator
+    project_weights = ProjectTo(weights)
+    project_sed_values = ProjectTo(sed_values)
+    project_denominator = ProjectTo(denominator)
+
+    function fixed_chromatic_ratio_pullback(output̄_thunked)
+        output̄ = unthunk(output̄_thunked)
+        scaled_output̄ = output̄ ./ denominator
+        weighted_sed̄ = transpose(beam) * scaled_output̄
+        weights̄ = project_weights(sed_values .* weighted_sed̄)
+        sed_values̄ = project_sed_values(weights .* weighted_sed̄)
+        denominator̄ = project_denominator(-scaled_output̄ .* output)
+        return NoTangent(), NoTangent(), weights̄, sed_values̄, denominator̄
+    end
+
+    return output, fixed_chromatic_ratio_pullback
+end
+
 # ------------------------------------------------------------------ #
 # factorized_cross(f, cl):  D[i,j,ℓ] = f[i] f[j] cl[ℓ]                  #
 # ------------------------------------------------------------------ #
@@ -275,6 +348,91 @@ function ChainRulesCore.rrule(::typeof(assemble_TT),
     return D, assemble_TT_pullback
 end
 
+function ChainRulesCore.rrule(::typeof(assemble_TT),
+                              a_p::Real, a_gtt::Real, a_s::Real,
+                              f_ksz::AbstractMatrix{<:Real},   f_cibp::AbstractMatrix{<:Real},
+                              f_dust::AbstractMatrix{<:Real},  f_radio::AbstractMatrix{<:Real},
+                              f_tsz::AbstractMatrix{<:Real},   f_cibc::AbstractMatrix{<:Real},
+                              cl_ksz::AbstractVector{<:Real},  cl_cibp::AbstractVector{<:Real},
+                              cl_dustT::AbstractVector{<:Real}, cl_radio::AbstractVector{<:Real},
+                              cl_tsz::AbstractVector{<:Real},  cl_cibc::AbstractVector{<:Real},
+                              cl_szxcib::AbstractVector{<:Real})
+    D = assemble_TT(a_p, a_gtt, a_s,
+                    f_ksz, f_cibp, f_dust, f_radio, f_tsz, f_cibc,
+                    cl_ksz, cl_cibp, cl_dustT, cl_radio,
+                    cl_tsz, cl_cibc, cl_szxcib)
+    n_freq, n_ell = size(f_ksz)
+    project_f = map(ProjectTo, (f_ksz, f_cibp, f_dust, f_radio, f_tsz, f_cibc))
+    project_cl = map(ProjectTo, (cl_ksz, cl_cibp, cl_dustT, cl_radio,
+                                 cl_tsz, cl_cibc, cl_szxcib))
+
+    function assemble_TT_matrix_pullback(D̄_thunked)
+        D̄ = unthunk(D̄_thunked)
+        T = promote_type(eltype(D̄), typeof(a_p), typeof(a_gtt), typeof(a_s),
+                         eltype(f_ksz), eltype(cl_ksz))
+        d_f_ksz = zeros(T, size(f_ksz)); d_f_cibp = zeros(T, size(f_cibp))
+        d_f_dust = zeros(T, size(f_dust)); d_f_radio = zeros(T, size(f_radio))
+        d_f_tsz = zeros(T, size(f_tsz)); d_f_cibc = zeros(T, size(f_cibc))
+        d_cl_ksz = zeros(T, n_ell); d_cl_cibp = zeros(T, n_ell)
+        d_cl_dustT = zeros(T, n_ell); d_cl_radio = zeros(T, n_ell)
+        d_cl_tsz = zeros(T, n_ell); d_cl_cibc = zeros(T, n_ell)
+        d_cl_szxcib = zeros(T, n_ell)
+        d_a_p = zero(T); d_a_gtt = zero(T); d_a_s = zero(T)
+
+        @inbounds for ℓ in 1:n_ell
+            cksz, ccp, cdt, crd = cl_ksz[ℓ], cl_cibp[ℓ], cl_dustT[ℓ], cl_radio[ℓ]
+            ctsz, ccc, csxc = cl_tsz[ℓ], cl_cibc[ℓ], cl_szxcib[ℓ]
+            for j in 1:n_freq, i in 1:n_freq
+                w = D̄[i, j, ℓ]
+                fki, fkj = f_ksz[i, ℓ], f_ksz[j, ℓ]
+                fpi, fpj = f_cibp[i, ℓ], f_cibp[j, ℓ]
+                fdi, fdj = f_dust[i, ℓ], f_dust[j, ℓ]
+                fri, frj = f_radio[i, ℓ], f_radio[j, ℓ]
+                fti, ftj = f_tsz[i, ℓ], f_tsz[j, ℓ]
+                fci, fcj = f_cibc[i, ℓ], f_cibc[j, ℓ]
+
+                d_f_ksz[i, ℓ] += w * fkj * cksz
+                d_f_ksz[j, ℓ] += w * fki * cksz
+                d_cl_ksz[ℓ] += w * fki * fkj
+
+                d_f_tsz[i, ℓ] += w * (ftj * ctsz + fcj * csxc)
+                d_f_tsz[j, ℓ] += w * (fti * ctsz + fci * csxc)
+                d_f_cibc[i, ℓ] += w * (fcj * ccc + ftj * csxc)
+                d_f_cibc[j, ℓ] += w * (fci * ccc + fti * csxc)
+                d_cl_tsz[ℓ] += w * fti * ftj
+                d_cl_cibc[ℓ] += w * fci * fcj
+                d_cl_szxcib[ℓ] += w * (fti * fcj + fci * ftj)
+
+                d_a_p += w * fpi * fpj * ccp
+                d_f_cibp[i, ℓ] += w * a_p * fpj * ccp
+                d_f_cibp[j, ℓ] += w * a_p * fpi * ccp
+                d_cl_cibp[ℓ] += w * a_p * fpi * fpj
+
+                d_a_gtt += w * fdi * fdj * cdt
+                d_f_dust[i, ℓ] += w * a_gtt * fdj * cdt
+                d_f_dust[j, ℓ] += w * a_gtt * fdi * cdt
+                d_cl_dustT[ℓ] += w * a_gtt * fdi * fdj
+
+                d_a_s += w * fri * frj * crd
+                d_f_radio[i, ℓ] += w * a_s * frj * crd
+                d_f_radio[j, ℓ] += w * a_s * fri * crd
+                d_cl_radio[ℓ] += w * a_s * fri * frj
+            end
+        end
+
+        return (NoTangent(), d_a_p, d_a_gtt, d_a_s,
+                project_f[1](d_f_ksz), project_f[2](d_f_cibp),
+                project_f[3](d_f_dust), project_f[4](d_f_radio),
+                project_f[5](d_f_tsz), project_f[6](d_f_cibc),
+                project_cl[1](d_cl_ksz), project_cl[2](d_cl_cibp),
+                project_cl[3](d_cl_dustT), project_cl[4](d_cl_radio),
+                project_cl[5](d_cl_tsz), project_cl[6](d_cl_cibc),
+                project_cl[7](d_cl_szxcib))
+    end
+
+    return D, assemble_TT_matrix_pullback
+end
+
 # ------------------------------------------------------------------ #
 # assemble_EE — fused EE-spectrum rrule                                #
 # ------------------------------------------------------------------ #
@@ -305,6 +463,44 @@ function ChainRulesCore.rrule(::typeof(assemble_EE),
     end
 
     return D, assemble_EE_pullback
+end
+
+function ChainRulesCore.rrule(::typeof(assemble_EE),
+                              a_psee::Real, a_gee::Real,
+                              f_radio_P::AbstractMatrix{<:Real},
+                              f_dust_P::AbstractMatrix{<:Real},
+                              cl_radio::AbstractVector{<:Real},
+                              cl_dustE::AbstractVector{<:Real})
+    D = assemble_EE(a_psee, a_gee, f_radio_P, f_dust_P, cl_radio, cl_dustE)
+    n_freq, n_ell = size(f_radio_P)
+    project_f_radio = ProjectTo(f_radio_P); project_f_dust = ProjectTo(f_dust_P)
+    project_cl_radio = ProjectTo(cl_radio); project_cl_dust = ProjectTo(cl_dustE)
+
+    function assemble_EE_matrix_pullback(D̄_thunked)
+        D̄ = unthunk(D̄_thunked)
+        T = promote_type(eltype(D̄), typeof(a_psee), typeof(a_gee),
+                         eltype(f_radio_P), eltype(cl_radio))
+        d_f_radio = zeros(T, size(f_radio_P)); d_f_dust = zeros(T, size(f_dust_P))
+        d_cl_radio = zeros(T, n_ell); d_cl_dust = zeros(T, n_ell)
+        d_a_psee = zero(T); d_a_gee = zero(T)
+        @inbounds for ℓ in 1:n_ell, j in 1:n_freq, i in 1:n_freq
+            w = D̄[i, j, ℓ]
+            fri, frj = f_radio_P[i, ℓ], f_radio_P[j, ℓ]
+            fdi, fdj = f_dust_P[i, ℓ], f_dust_P[j, ℓ]
+            d_a_psee += w * fri * frj * cl_radio[ℓ]
+            d_f_radio[i, ℓ] += w * a_psee * frj * cl_radio[ℓ]
+            d_f_radio[j, ℓ] += w * a_psee * fri * cl_radio[ℓ]
+            d_cl_radio[ℓ] += w * a_psee * fri * frj
+            d_a_gee += w * fdi * fdj * cl_dustE[ℓ]
+            d_f_dust[i, ℓ] += w * a_gee * fdj * cl_dustE[ℓ]
+            d_f_dust[j, ℓ] += w * a_gee * fdi * cl_dustE[ℓ]
+            d_cl_dust[ℓ] += w * a_gee * fdi * fdj
+        end
+        return (NoTangent(), d_a_psee, d_a_gee,
+                project_f_radio(d_f_radio), project_f_dust(d_f_dust),
+                project_cl_radio(d_cl_radio), project_cl_dust(d_cl_dust))
+    end
+    return D, assemble_EE_matrix_pullback
 end
 
 # ------------------------------------------------------------------ #
@@ -353,4 +549,47 @@ function ChainRulesCore.rrule(::typeof(assemble_TE),
     end
 
     return D, assemble_TE_pullback
+end
+
+function ChainRulesCore.rrule(::typeof(assemble_TE),
+                              a_pste::Real, a_gte::Real,
+                              f_radio_T::AbstractMatrix{<:Real},
+                              f_radio_P::AbstractMatrix{<:Real},
+                              f_dust_T::AbstractMatrix{<:Real},
+                              f_dust_P::AbstractMatrix{<:Real},
+                              cl_radio::AbstractVector{<:Real},
+                              cl_dustE::AbstractVector{<:Real})
+    D = assemble_TE(a_pste, a_gte, f_radio_T, f_radio_P,
+                    f_dust_T, f_dust_P, cl_radio, cl_dustE)
+    n_freq, n_ell = size(f_radio_T)
+    project_f = map(ProjectTo, (f_radio_T, f_radio_P, f_dust_T, f_dust_P))
+    project_cl_radio = ProjectTo(cl_radio); project_cl_dust = ProjectTo(cl_dustE)
+
+    function assemble_TE_matrix_pullback(D̄_thunked)
+        D̄ = unthunk(D̄_thunked)
+        T = promote_type(eltype(D̄), typeof(a_pste), typeof(a_gte),
+                         eltype(f_radio_T), eltype(cl_radio))
+        d_f_radio_T = zeros(T, size(f_radio_T)); d_f_radio_P = zeros(T, size(f_radio_P))
+        d_f_dust_T = zeros(T, size(f_dust_T)); d_f_dust_P = zeros(T, size(f_dust_P))
+        d_cl_radio = zeros(T, n_ell); d_cl_dust = zeros(T, n_ell)
+        d_a_pste = zero(T); d_a_gte = zero(T)
+        @inbounds for ℓ in 1:n_ell, j in 1:n_freq, i in 1:n_freq
+            w = D̄[i, j, ℓ]
+            frti, frpj = f_radio_T[i, ℓ], f_radio_P[j, ℓ]
+            fdti, fdpj = f_dust_T[i, ℓ], f_dust_P[j, ℓ]
+            d_a_pste += w * frti * frpj * cl_radio[ℓ]
+            d_f_radio_T[i, ℓ] += w * a_pste * frpj * cl_radio[ℓ]
+            d_f_radio_P[j, ℓ] += w * a_pste * frti * cl_radio[ℓ]
+            d_cl_radio[ℓ] += w * a_pste * frti * frpj
+            d_a_gte += w * fdti * fdpj * cl_dustE[ℓ]
+            d_f_dust_T[i, ℓ] += w * a_gte * fdpj * cl_dustE[ℓ]
+            d_f_dust_P[j, ℓ] += w * a_gte * fdti * cl_dustE[ℓ]
+            d_cl_dust[ℓ] += w * a_gte * fdti * fdpj
+        end
+        return (NoTangent(), d_a_pste, d_a_gte,
+                project_f[1](d_f_radio_T), project_f[2](d_f_radio_P),
+                project_f[3](d_f_dust_T), project_f[4](d_f_dust_P),
+                project_cl_radio(d_cl_radio), project_cl_dust(d_cl_dust))
+    end
+    return D, assemble_TE_matrix_pullback
 end

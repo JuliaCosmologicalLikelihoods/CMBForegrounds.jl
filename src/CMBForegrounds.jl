@@ -60,6 +60,7 @@ export trapz, RawBand, Band, AbstractBand, DeltaBand, ChromaticBeam,
 export factorized_cross, factorized_cross_te, correlated_cross, build_szxcib_cl,
        assemble_TT, assemble_EE, assemble_TE
 export calibration_factor, apply_calibration,
+       window_convolution,
        additive_template, add_template,
        te_leakage, et_leakage, ee_leakage, apply_te_leakage, apply_ee_leakage,
        beam_eigenmode_response, beam_eigenmode_cross,

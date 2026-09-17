@@ -5,6 +5,9 @@ using ForwardDiff
 using Mooncake
 using Zygote
 using DifferentiationInterface
+using ADTypes
+using ChainRulesCore
+using FiniteDifferences
 const DI = DifferentiationInterface
 using JET
 
@@ -258,5 +261,29 @@ using JET
         @test_opt add_template(cl, cl, 2.0)
         @test_opt te_leakage(cl, 0.05)
         @test_opt ee_leakage(cl, cl, 0.05)
+    end
+
+    @testset "7. Fixed window convolution" begin
+        window = rand(7, 3)
+        spectrum = rand(7)
+        projection_bar = randn(3)
+        projection, pullback = ChainRulesCore.rrule(window_convolution, window, spectrum)
+        function_bar, window_bar, spectrum_bar = pullback(projection_bar)
+        @test projection ≈ transpose(window) * spectrum
+        @test function_bar isa ChainRulesCore.NoTangent
+        @test window_bar isa ChainRulesCore.NoTangent
+        @test spectrum_bar ≈ window * projection_bar
+
+        weights = randn(3)
+        objective(x) = dot(weights, window_convolution(window, x))
+        gradient_forward = DI.gradient(objective, AutoForwardDiff(), spectrum)
+        gradient_mooncake = DI.gradient(objective, AutoMooncake(config=nothing), spectrum)
+        gradient_finite = DI.gradient(
+            objective,
+            AutoFiniteDifferences(; fdm=FiniteDifferences.central_fdm(5, 1)), spectrum,
+        )
+        @test gradient_mooncake ≈ gradient_forward rtol=1e-12
+        @test gradient_mooncake ≈ gradient_finite rtol=1e-8 atol=1e-10
+        @test_throws DimensionMismatch window_convolution(window, rand(6))
     end
 end

@@ -306,6 +306,25 @@ function prepare_chromatic_bandpass(band::Band, beam::ChromaticBeam)
     return PreparedChromaticBandpass(band, beam, weights, denominator)
 end
 
+@inline _fixed_beam_product(beam::AbstractMatrix, values::AbstractVector) = beam * values
+
+function _prepare_fixed_chromatic_bandpass(band::Band, beam::ChromaticBeam)
+    if band.monofreq
+        return PreparedChromaticBandpass(band, beam, nothing, nothing)
+    end
+    size(beam.beam, 2) == length(band.nu) ||
+        throw(DimensionMismatch("beam frequency dimension must match the band"))
+    dnu = diff(band.nu)
+    trapz_weights = vcat(first(dnu) / 2,
+                         (dnu[1:end-1] .+ dnu[2:end]) ./ 2,
+                         last(dnu) / 2)
+    weights = trapz_weights .* band.norm_bp
+    denominator = _fixed_beam_product(beam.beam, weights)
+    all(isfinite, denominator) && all(!iszero, denominator) ||
+        throw(DomainError(denominator, "chromatic normalization must be finite and nonzero"))
+    return PreparedChromaticBandpass(band, beam, weights, denominator)
+end
+
 function prepare_chromatic_bandpass(band::DeltaBand, beam::ChromaticBeam)
     # A DeltaBand has no sampled frequency grid; the beam cancels identically.
     return PreparedChromaticBandpass(band, beam, nothing, nothing)
@@ -332,13 +351,33 @@ function integrate_chromatic_sed(sed_fn, band::Band{T}, chromatic_beam::Chromati
     return integrate_chromatic_sed(sed_fn, prepared)
 end
 
+function _chromatic_ratio(beam::AbstractMatrix, weights::AbstractVector,
+                          sed_values::AbstractVector, denominator::AbstractVector)
+    return (beam * (weights .* sed_values)) ./ denominator
+end
+
+function _fixed_chromatic_ratio(beam::AbstractMatrix, weights::AbstractVector,
+                                sed_values::AbstractVector, denominator::AbstractVector)
+    return (beam * (weights .* sed_values)) ./ denominator
+end
+
 @inline function integrate_chromatic_sed(sed_fn, prepared::PreparedChromaticBandpass)
     band = prepared.band
     if prepared.weights === nothing
         return fill(sed_fn(band.nu_eff), length(prepared.beam.ells))
     end
-    numerator = prepared.beam.beam * (prepared.weights .* sed_fn.(band.nu))
-    return numerator ./ prepared.denominator
+    return _chromatic_ratio(prepared.beam.beam, prepared.weights,
+                            sed_fn.(band.nu), prepared.denominator)
+end
+
+@inline function _integrate_fixed_chromatic_sed(sed_fn,
+                                                 prepared::PreparedChromaticBandpass)
+    band = prepared.band
+    if prepared.weights === nothing
+        return fill(sed_fn(band.nu_eff), length(prepared.beam.ells))
+    end
+    return _fixed_chromatic_ratio(prepared.beam.beam, prepared.weights,
+                                  sed_fn.(band.nu), prepared.denominator)
 end
 
 @inline integrate_chromatic_sed(sed_fn, band::DeltaBand,
@@ -380,5 +419,18 @@ function eval_chromatic_sed_bands(
     all(response -> _same_multipole_grid(response.beam.ells, reference_ells), prepared) ||
         throw(ArgumentError("all prepared responses must use the same multipole grid"))
     responses = [integrate_chromatic_sed(sed_fn, response) for response in prepared]
+    return permutedims(reduce(hcat, responses))
+end
+
+function _eval_fixed_chromatic_sed_bands(
+    sed_fn, prepared::AbstractVector{<:PreparedChromaticBandpass}
+)
+    Base.require_one_based_indexing(prepared)
+    isempty(prepared) &&
+        throw(ArgumentError("fixed chromatic responses cannot be empty"))
+    reference_ells = prepared[1].beam.ells
+    all(response -> _same_multipole_grid(response.beam.ells, reference_ells), prepared) ||
+        throw(ArgumentError("all prepared responses must use the same multipole grid"))
+    responses = [_integrate_fixed_chromatic_sed(sed_fn, response) for response in prepared]
     return permutedims(reduce(hcat, responses))
 end
