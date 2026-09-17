@@ -1,7 +1,7 @@
 name = "CMBForegrounds"
 uuid = "fc0df5e6-91e0-40ab-a79d-ad91d7e99724"
 authors = ["Marco Bonici <bonici.marco@gmail.com>"]
-version = "0.3.1"
+version = "0.4.0"
 
 [deps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
@@ -18,6 +18,7 @@ ADTypes = "1"
 ChainRulesCore = "1"
 DifferentiationInterface = "0.7"
 ForwardDiff = "1"
+FiniteDifferences = "0.12"
 JET = "0.9, 0.10, 0.11"
 LinearAlgebra = "1"
 Mooncake = "0.5"
@@ -28,6 +29,7 @@ julia = "1.10"
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -36,4 +38,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [targets]
-test = ["Test", "Printf", "Random", "ADTypes", "DifferentiationInterface", "ForwardDiff", "JET", "Mooncake", "Zygote"]
+test = ["Test", "Printf", "Random", "ADTypes", "DifferentiationInterface", "FiniteDifferences", "ForwardDiff", "JET", "Mooncake", "Zygote"]

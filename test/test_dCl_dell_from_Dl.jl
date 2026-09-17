@@ -144,7 +144,25 @@ central differences for interior points and boundary extrapolation for endpoints
         Dℓ_2 = [100.0, 200.0]
         dCℓ_dℓ_2 = CMBForegrounds.dCl_dell_from_Dl(ℓs_2, Dℓ_2)
         @test length(dCℓ_dℓ_2) == 2
+        Cℓ_2 = @. Dℓ_2 * 2π / (ℓs_2 * (ℓs_2 + 1))
+        secant = (Cℓ_2[2] - Cℓ_2[1]) / (ℓs_2[2] - ℓs_2[1])
+        @test dCℓ_dℓ_2 == fill(secant, 2)
         @test dCℓ_dℓ_2[1] == dCℓ_dℓ_2[2]  # Both should be equal (boundary condition)
+
+        @test_throws ArgumentError CMBForegrounds.dCl_dell_from_Dl(
+            [100, 100, 200], [1.0, 2.0, 3.0]
+        )
+    end
+
+    @testset "Unequally spaced grid" begin
+        ℓs = [100.0, 101.0, 200.0]
+        Cℓ = ℓs .^ 2
+        Dℓ = @. ℓs * (ℓs + 1) / (2π) * Cℓ
+        derivative = CMBForegrounds.dCl_dell_from_Dl(ℓs, Dℓ)
+        @test derivative[2] ≈ 2ℓs[2] rtol=1e-12
+
+        constant_Dℓ = @. ℓs * (ℓs + 1) / (2π) * 3.0
+        @test CMBForegrounds.dCl_dell_from_Dl(ℓs, constant_Dℓ) ≈ zeros(3) atol=1e-14
     end
 
     @testset "Type Stability" begin
@@ -365,6 +383,6 @@ central differences for interior points and boundary extrapolation for endpoints
 
         # Should change sign around the peak
         # (detailed behavior depends on sampling, just check it's reasonable)
-        @test any(dCℓ_dℓ_peak .> 0) || any(dCℓ_dℓ_peak .< 0)  # Not all same sign
+        @test any(dCℓ_dℓ_peak .> 0) && any(dCℓ_dℓ_peak .< 0)
     end
 end

@@ -359,9 +359,7 @@ This models how instrumental beam size affects CMB power spectra at different mu
         for (i, ℓ) in enumerate(ells_small)
             linear_approx = 1.0 - 0.5 * ℓ * (ℓ + 1) * σ^2
             # Linear approximation should be close for small ℓ and σ
-            if abs(linear_approx - result_small[i]) < 0.1
-                @test result_small[i] ≈ linear_approx atol = 0.05
-            end
+            @test result_small[i] ≈ linear_approx atol = 1e-10
         end
 
         # Large ℓ limit: log B(ℓ) ≈ -0.5 * ℓ² * σ² for ℓ >> 1

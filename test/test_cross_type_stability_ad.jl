@@ -10,23 +10,26 @@ Each function is checked for:
      element-wise composition exactly (rtol = 1e-12).
   2. Type stability — `JET.@test_opt` on a representative call.
   3. AD agreement — ForwardDiff vs Mooncake gradients of a scalar
-     reduction must agree (rtol = 1e-10).
+     reduction must agree (rtol = 1e-10), with a targeted Zygote check for a
+     fused assembler.
 
 The Mooncake path goes through the `@from_chainrules` registrations in
 `CMBForegroundsMooncakeExt`, so this also tests that the extension is
 correctly wired to the rrules in `src/rrules.jl`.
 
-Zygote is intentionally excluded — the fused assemblers use
-`Array{T}(undef, n_freq, n_freq, n_ell)` + scalar in-place writes for
-performance, which Zygote cannot differentiate. This matches the design
-in ACT/SPT/Hillipop where only ForwardDiff and Mooncake are used.
+The fused assemblers return fresh arrays and do not mutate caller inputs.
+Their ChainRules rules support Zygote; Mooncake remains the production reverse
+backend exercised across every fused assembler here.
 """
 
 using JET
 using ADTypes
+using ChainRulesCore
 import DifferentiationInterface as DI
 using ForwardDiff
+using LinearAlgebra
 using Mooncake
+using Zygote
 using Random
 
 
@@ -133,12 +136,7 @@ end
         @test D[i, j, ℓ] ≈ ref
     end
 
-    # JET 0.9.x (Julia 1.10) detects a spurious runtime dispatch inside
-    # sum(generator over ProductIterator) in Base — not a real code issue.
-    # The check is clean on JET ≥ 0.11 (Julia ≥ 1.11).
-    if VERSION >= v"1.11"
-        JET.@test_opt correlated_cross(f, cl)
-    end
+    JET.@test_opt correlated_cross(f, cl)
 
     # AD wrt f
     g_f(x) = sum(correlated_cross(x, cl))
@@ -151,6 +149,32 @@ end
     grad_fd = DI.gradient(g_cl, AutoForwardDiff(), cl)
     grad_mk = DI.gradient(g_cl, AutoMooncake(; config=nothing), cl)
     @test grad_fd ≈ grad_mk rtol=1e-10
+
+    rng = MersenneTwister(0xC0FFEE)
+    weights = randn(rng, n_freq, n_freq, n_ell)
+    function weighted_loss(v)
+        f_v = reshape(v[1:n_comp * n_freq], n_comp, n_freq)
+        cl_v = reshape(v[n_comp * n_freq + 1:end], n_comp, n_comp, n_ell)
+        return dot(weights, correlated_cross(f_v, cl_v))
+    end
+    v0 = vcat(vec(f), vec(cl))
+    direction = randn(rng, length(v0))
+    direction ./= norm(direction)
+    gradient = DI.gradient(weighted_loss, AutoMooncake(; config=nothing), v0)
+    epsilon = 1e-6
+    finite_difference = (weighted_loss(v0 .+ epsilon .* direction) -
+                         weighted_loss(v0 .- epsilon .* direction)) / (2epsilon)
+    @test dot(gradient, direction) ≈ finite_difference rtol=1e-6 atol=1e-9
+
+    diagonal_f = Diagonal([1.0, 2.0])
+    diagonal_cl = ones(2, 2, 1)
+    D_diagonal, pullback = ChainRulesCore.rrule(
+        correlated_cross, diagonal_f, diagonal_cl
+    )
+    _, df_diagonal, dcl_diagonal = pullback(ones(size(D_diagonal)))
+    @test df_diagonal isa Diagonal
+    @test Matrix(df_diagonal) == Matrix(Diagonal([6.0, 6.0]))
+    @test dcl_diagonal == ones(2, 2, 1) .* [1.0 2.0; 2.0 4.0]
 end
 
 
@@ -291,6 +315,7 @@ end
     grad_fd = DI.gradient(g_EE, AutoForwardDiff(), v0)
     grad_mk = DI.gradient(g_EE, AutoMooncake(; config=nothing), v0)
     @test grad_fd ≈ grad_mk rtol=1e-10
+    @test grad_fd ≈ DI.gradient(g_EE, AutoZygote(), v0) rtol=1e-10
 end
 
 
@@ -337,4 +362,61 @@ end
     grad_fd = DI.gradient(g_TE, AutoForwardDiff(), v0)
     grad_mk = DI.gradient(g_TE, AutoMooncake(; config=nothing), v0)
     @test grad_fd ≈ grad_mk rtol=1e-10
+end
+
+
+@testset "Cross-spectrum dimension validation" begin
+    @test_throws DimensionMismatch factorized_cross(rand(2, 3), rand(4))
+    @test_throws DimensionMismatch factorized_cross_te(rand(2), rand(3), rand(4))
+    @test_throws DimensionMismatch factorized_cross_te(rand(2, 3), rand(3, 3), rand(3))
+    @test_throws DimensionMismatch factorized_cross_te(rand(2, 3), rand(2, 3), rand(4))
+    @test_throws DimensionMismatch ChainRulesCore.rrule(
+        factorized_cross_te, rand(2), rand(3), rand(4)
+    )
+
+    f = rand(2, 3)
+    @test_throws DimensionMismatch correlated_cross(f, rand(1, 1, 4))
+    @test_throws DimensionMismatch correlated_cross(f, rand(3, 3, 4))
+    @test_throws DimensionMismatch build_szxcib_cl(rand(3), rand(2), rand(3))
+    @test_throws DimensionMismatch build_szxcib_cl(rand(3), rand(3), rand(4))
+
+    frequency_vectors = ntuple(_ -> rand(2), 6)
+    angular_spectra = ntuple(_ -> rand(3), 7)
+    for index in 2:6, bad_length in (1, 3)
+        bad_frequency_vectors = Base.setindex(frequency_vectors, rand(bad_length), index)
+        @test_throws DimensionMismatch assemble_TT(
+            1.0, 1.0, 1.0, bad_frequency_vectors..., angular_spectra...
+        )
+    end
+    for index in 2:7, bad_length in (2, 4)
+        bad_angular_spectra = Base.setindex(angular_spectra, rand(bad_length), index)
+        @test_throws DimensionMismatch assemble_TT(
+            1.0, 1.0, 1.0, frequency_vectors..., bad_angular_spectra...
+        )
+    end
+
+    for bad_length in (1, 3)
+        @test_throws DimensionMismatch assemble_EE(
+            1.0, 1.0, rand(2), rand(bad_length), rand(3), rand(3)
+        )
+    end
+    for bad_length in (2, 4)
+        @test_throws DimensionMismatch assemble_EE(
+            1.0, 1.0, rand(2), rand(2), rand(3), rand(bad_length)
+        )
+    end
+
+    for index in 2:4, bad_length in (1, 3)
+        vectors = ntuple(_ -> rand(2), 4)
+        bad_vectors = Base.setindex(vectors, rand(bad_length), index)
+        @test_throws DimensionMismatch assemble_TE(
+            1.0, 1.0, bad_vectors..., rand(3), rand(3)
+        )
+    end
+    for bad_length in (2, 4)
+        @test_throws DimensionMismatch assemble_TE(
+            1.0, 1.0, rand(2), rand(2), rand(2), rand(2),
+            rand(3), rand(bad_length)
+        )
+    end
 end
