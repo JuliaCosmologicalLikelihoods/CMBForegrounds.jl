@@ -30,9 +30,19 @@ end
         @test Base.isexported(CMBForegrounds, name)
     end
     # Documented, so Documenter's `@docs` block cannot silently go stale.
+    #
+    # `Base.Docs.meta` is used deliberately. `Base.Docs.doc(::Base.Docs.Binding)`
+    # has no method on Julia 1.11, and `Base.Docs.hasdoc` does not exist on
+    # Julia 1.10, so either would break part of the supported 1.10/1.11/1.12
+    # matrix. This form was checked on all three.
     for name in (:prepare_fixed_chromatic_bandpass, :eval_fixed_chromatic_sed_bands)
-        @test !isempty(string(Base.Docs.doc(Base.Docs.Binding(CMBForegrounds, name))))
+        binding = Base.Docs.Binding(CMBForegrounds, name)
+        @test haskey(Base.Docs.meta(CMBForegrounds), binding)
     end
+    # The predicate must be able to fail, or it asserts nothing: the private
+    # kernels carry no docstring.
+    @test !haskey(Base.Docs.meta(CMBForegrounds),
+                  Base.Docs.Binding(CMBForegrounds, :_fixed_beam_product))
 end
 
 @testset "Fixed chromatic bandpass — primal equals the active-beam route" begin
