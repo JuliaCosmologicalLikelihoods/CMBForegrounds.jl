@@ -78,6 +78,23 @@ Reuse a prepared response across components only while the underlying band and
 beam are fixed. For sampled shifts or beam parameters, construct it once inside
 the current parameter evaluation.
 
+When the beam is a measured instrument product rather than an inference
+parameter, use the fixed-beam pair instead:
+
+```julia
+prepared = prepare_fixed_chromatic_bandpass(band, beam)
+weights = eval_fixed_chromatic_sed_bands(nu -> sed_weight(dust_sed, nu, 1.5),
+                                         [prepared])
+```
+
+The primal result is identical to `prepare_chromatic_bandpass` /
+`eval_chromatic_sed_bands`. The difference is in reverse mode: the fixed route
+returns `NoTangent()` for the beam instead of a dense cotangent the size of the
+beam matrix, which matters when the beam is `(n_ell, n_nu)` with `n_ell` in the
+thousands. Derivatives with respect to the band — including a bandpass shift
+applied by `shift_and_normalize` inside the differentiated call — are fully
+preserved either way.
+
 ## Component correlations
 
 `TemplateCorrelation` implements a signed, symmetrized cross-template prescription. `GeometricMeanCorrelation` implements the distinct geometric-mean construction.

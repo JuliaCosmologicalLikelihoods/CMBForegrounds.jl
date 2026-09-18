@@ -308,7 +308,44 @@ end
 
 @inline _fixed_beam_product(beam::AbstractMatrix, values::AbstractVector) = beam * values
 
-function _prepare_fixed_chromatic_bandpass(band::Band, beam::ChromaticBeam)
+"""
+    prepare_fixed_chromatic_bandpass(band, beam) -> PreparedChromaticBandpass
+
+Prepare a chromatic bandpass response while treating the beam as a **fixed**,
+non-differentiable quantity.
+
+This is the fixed-beam counterpart of [`prepare_chromatic_bandpass`](@ref). The
+two produce numerically identical results; they differ only in reverse mode:
+
+* `prepare_chromatic_bandpass` treats `beam.beam` as an active input and its
+  pullback returns a dense cotangent of the same size as the beam matrix.
+* `prepare_fixed_chromatic_bandpass` declares the beam constant, so its pullback
+  returns `NoTangent()` for it.
+
+Use this variant whenever the beam is a measured instrument calibration product
+rather than an inference parameter. For a survey such as ACT DR6, whose
+chromatic beams are `(n_ell, n_nu) = (8500, ~600)` per array, the fixed route
+avoids allocating and accumulating one such matrix per SED per channel in every
+reverse pass.
+
+Derivatives with respect to the *band* are fully preserved, so a bandpass shift
+applied with [`shift_and_normalize`](@ref) inside the differentiated call still
+propagates correctly.
+
+Pair it with [`eval_fixed_chromatic_sed_bands`](@ref).
+
+```julia
+bands    = [shift_and_normalize(raw, shift) for (raw, shift) in zip(raws, shifts)]
+prepared = [prepare_fixed_chromatic_bandpass(band, beam)
+            for (band, beam) in zip(bands, beams)]
+weights  = eval_fixed_chromatic_sed_bands(nu -> sed_weight(sed, nu, beta), prepared)
+```
+
+For a monochromatic band the beam cancels identically and the result matches
+`prepare_chromatic_bandpass` exactly. Do not mutate the underlying band or beam
+arrays after preparation.
+"""
+function prepare_fixed_chromatic_bandpass(band::Band, beam::ChromaticBeam)
     if band.monofreq
         return PreparedChromaticBandpass(band, beam, nothing, nothing)
     end
@@ -324,6 +361,15 @@ function _prepare_fixed_chromatic_bandpass(band::Band, beam::ChromaticBeam)
         throw(DomainError(denominator, "chromatic normalization must be finite and nonzero"))
     return PreparedChromaticBandpass(band, beam, weights, denominator)
 end
+
+"""
+    prepare_fixed_chromatic_bandpass(band::DeltaBand, beam)
+
+A `DeltaBand` has no sampled frequency grid and the beam cancels identically, so
+the fixed and active routes coincide.
+"""
+prepare_fixed_chromatic_bandpass(band::DeltaBand, beam::ChromaticBeam) =
+    PreparedChromaticBandpass(band, beam, nothing, nothing)
 
 function prepare_chromatic_bandpass(band::DeltaBand, beam::ChromaticBeam)
     # A DeltaBand has no sampled frequency grid; the beam cancels identically.
@@ -422,7 +468,20 @@ function eval_chromatic_sed_bands(
     return permutedims(reduce(hcat, responses))
 end
 
-function _eval_fixed_chromatic_sed_bands(
+"""
+    eval_fixed_chromatic_sed_bands(sed_fn, prepared) -> Matrix
+
+Evaluate a SED across a vector of fixed-beam chromatic responses, returning an
+`(n_freq, n_ell)` matrix.
+
+This is the fixed-beam counterpart of [`eval_chromatic_sed_bands`](@ref) and
+consumes the output of [`prepare_fixed_chromatic_bandpass`](@ref). The primal
+result is identical to the active-beam route; only the reverse-mode behaviour
+differs, in that the beam receives `NoTangent()`.
+
+All prepared responses must share one multipole grid.
+"""
+function eval_fixed_chromatic_sed_bands(
     sed_fn, prepared::AbstractVector{<:PreparedChromaticBandpass}
 )
     Base.require_one_based_indexing(prepared)
