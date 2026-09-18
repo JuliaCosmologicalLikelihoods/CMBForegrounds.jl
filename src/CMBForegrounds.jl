@@ -56,7 +56,8 @@ export x_cmb, rj2cmb, cmb2bb, tsz_f, tsz_sed, mbb_sed, radio_sed, constant_sed
 export trapz, RawBand, Band, AbstractBand, DeltaBand, ChromaticBeam,
        PreparedChromaticBandpass, make_band, point_band, shift_and_normalize,
        prepare_chromatic_bandpass, integrate_sed, integrate_tsz, eval_sed_bands,
-       integrate_chromatic_sed, eval_chromatic_sed_bands
+       integrate_chromatic_sed, eval_chromatic_sed_bands,
+       prepare_fixed_chromatic_bandpass, eval_fixed_chromatic_sed_bands
 export factorized_cross, factorized_cross_te, correlated_cross, build_szxcib_cl,
        assemble_TT, assemble_EE, assemble_TE
 export calibration_factor, apply_calibration,

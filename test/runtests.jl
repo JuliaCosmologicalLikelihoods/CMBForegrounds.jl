@@ -24,6 +24,7 @@ using Random
     include("test_sed_dispatch.jl")
     include("test_correlation_dispatch.jl")
     include("test_bandpass_chromatic_dispatch.jl")
+    include("test_fixed_chromatic_bandpass_api.jl")
     include("test_instrument_dispatch.jl")
     include("test_integration_validation.jl")
 

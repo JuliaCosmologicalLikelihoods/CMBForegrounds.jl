@@ -45,6 +45,8 @@ ChromaticBeam
 integrate_sed
 integrate_chromatic_sed
 eval_chromatic_sed_bands
+prepare_fixed_chromatic_bandpass
+eval_fixed_chromatic_sed_bands
 factorized_cross
 factorized_cross_te
 ```
